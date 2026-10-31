@@ -310,21 +310,27 @@ namespace JunkLootFilter
         {
             Label(content, 8, 2, "OTHER SETTINGS", EdgeColor);
 
-            AddToggle(8, 16, "Skyrim-style vitals bars", JunkStore.S.skyrimBars, delegate (bool v) { JunkStore.S.skyrimBars = v; });
-            Label(content, 22, 27, "Magicka, health and stamina along the bottom of the screen, with numbers.", HintColor);
+            AddToggle(8, 14, "Skyrim-style vitals bars", JunkStore.S.skyrimBars, delegate (bool v) { JunkStore.S.skyrimBars = v; });
+            Label(content, 22, 24, "Magicka, health and stamina along the bottom, with numbers.", HintColor);
 
-            AddToggle(8, 42, "Effect names and borders on the HUD", JunkStore.S.effectLabels, delegate (bool v) { JunkStore.S.effectLabels = v; });
-            Label(content, 22, 53, "Name under each active effect icon; green border for buffs, red for debuffs.", HintColor);
+            AddToggle(8, 34, "Effect names and borders on the HUD", JunkStore.S.effectLabels, delegate (bool v) { JunkStore.S.effectLabels = v; });
+            Label(content, 22, 44, "Top left; name under each icon, green border for buffs, red for debuffs.", HintColor);
 
-            AddToggle(8, 68, "Corpse clean up", JunkStore.S.corpseCleanup, delegate (bool v) { JunkStore.S.corpseCleanup = v; });
-            Label(content, 22, 79, "Empty corpses fade away in 5 seconds; after a quick loot that left items, in 10.", HintColor);
+            AddToggle(8, 54, "Wide compass", JunkStore.S.skyrimCompass, delegate (bool v) { JunkStore.S.skyrimCompass = v; });
+            Label(content, 22, 64, "A stretched compass at the top centre of the screen.", HintColor);
 
-            Label(content, 8, 100, "WINDOW SIZE", EdgeColor);
-            Label(content, 8, 110, "Shrinks and centres the game's windows. 100% is the classic full-screen size.", HintColor);
-            Button smaller = DaggerfallUI.AddTextButton(new Rect(8, 123, 22, 12), "-", content);
+            AddToggle(8, 74, "Fading interaction icon", JunkStore.S.fadeModeIcon, delegate (bool v) { JunkStore.S.fadeModeIcon = v; });
+            Label(content, 22, 84, "Bottom left; fades out 5 seconds after the mode is switched.", HintColor);
+
+            AddToggle(8, 94, "Corpse clean up", JunkStore.S.corpseCleanup, delegate (bool v) { JunkStore.S.corpseCleanup = v; });
+            Label(content, 22, 104, "Empty corpses fade away in 5 seconds; after a quick loot that left items, in 10.", HintColor);
+
+            Label(content, 8, 118, "WINDOW SIZE", EdgeColor);
+            Label(content, 8, 127, "Shrinks and centres the game's windows. 100% is the classic full-screen size.", HintColor);
+            Button smaller = DaggerfallUI.AddTextButton(new Rect(8, 137, 22, 12), "-", content);
             smaller.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { ChangeWindowScale(-0.05f); };
-            Label(content, 40, 125, Mathf.RoundToInt(JunkStore.S.windowScale * 100f) + "%", DaggerfallUI.DaggerfallDefaultTextColor);
-            Button bigger = DaggerfallUI.AddTextButton(new Rect(74, 123, 22, 12), "+", content);
+            Label(content, 40, 139, Mathf.RoundToInt(JunkStore.S.windowScale * 100f) + "%", DaggerfallUI.DaggerfallDefaultTextColor);
+            Button bigger = DaggerfallUI.AddTextButton(new Rect(74, 137, 22, 12), "+", content);
             bigger.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { ChangeWindowScale(0.05f); };
         }
 

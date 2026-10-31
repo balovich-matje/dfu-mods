@@ -250,6 +250,10 @@ namespace JunkLootFilter
         public bool effectLabels;
         // Empty corpses fade away.
         public bool corpseCleanup;
+        // Wide Skyrim-style compass at the top centre of the screen.
+        public bool skyrimCompass;
+        // Interaction mode icon at the bottom left that fades out some seconds after the mode changes.
+        public bool fadeModeIcon;
 
         // Views onto the fields above, built by JunkStore.Load().
         [NonSerialized] public FilterProfile loot;
@@ -366,6 +370,12 @@ namespace JunkLootFilter
                 S.effectLabels = true;
                 S.corpseCleanup = true;
                 S.version = 2;
+            }
+            if (S.version < 3)
+            {
+                S.skyrimCompass = true;
+                S.fadeModeIcon = true;
+                S.version = 3;
             }
 
             S.loot = new FilterProfile(S.lootCategories, S.lootMaterials, S.lootWhite, S.lootBlack);
