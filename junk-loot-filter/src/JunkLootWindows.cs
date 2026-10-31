@@ -329,12 +329,16 @@ namespace JunkLootFilter
         static readonly Color Muted = new Color(0.7f, 0.7f, 0.65f, 1f);
 
         const int MaxLines = 8;
+        // The hover keeps the on-screen size it had before the windows were shrunk, then grows by this much.
+        const float FontBoost = 1.3f;
 
         Panel nativePanel;
         Panel panel;
         MultiFormatTextLabel label;
         TextLabel[] lines = new TextLabel[MaxLines];
         int lineCount;
+        float appliedScale = 1f;
+        TextFile.Token[] lastTokens;
 
         public bool Attached
         {
@@ -393,6 +397,28 @@ namespace JunkLootFilter
                 all.AddRange(magic);
             }
             return all.ToArray();
+        }
+
+        // The tokens currently shown, so the text can be laid out again when the scale changes.
+        public void Remember(TextFile.Token[] tokens)
+        {
+            lastTokens = tokens;
+        }
+
+        // Counteracts the window shrinking (windowFactor) so the hover stays the same size on screen.
+        void ApplyScale(float m)
+        {
+            appliedScale = m;
+            label.TextScale = 0.5f * m;
+            label.MaxTextWidth = Mathf.RoundToInt(62f * m);
+            label.Position = new Vector2(3f * m, 2f * m);
+            for (int i = 0; i < MaxLines; i++)
+            {
+                if (lines[i] != null)
+                    lines[i].TextScale = 0.5f * m;
+            }
+            if (lastTokens != null)
+                label.SetText(lastTokens);
         }
 
         public void ClearCompare()
@@ -480,10 +506,14 @@ namespace JunkLootFilter
                 AddLine("Loses magic powers", Worse);
         }
 
-        public void Place(bool show)
+        public void Place(bool show, float windowFactor)
         {
             if (panel == null)
                 return;
+
+            float m = FontBoost / Mathf.Max(0.4f, windowFactor);
+            if (Mathf.Abs(m - appliedScale) > 0.01f)
+                ApplyScale(m);
 
             Vector2 mouse = nativePanel.ScaledMousePosition;
             if (!show || mouse.x < 0 || mouse.y < 0 || label.Size.y < 1)
@@ -493,15 +523,15 @@ namespace JunkLootFilter
             }
 
             float width = label.Size.x;
-            float y = 2 + label.Size.y + 3;
+            float y = (2 + 3) * m + label.Size.y;
             for (int i = 0; i < lineCount; i++)
             {
-                lines[i].Position = new Vector2(3, y);
-                y += lines[i].TextHeight + 1;
+                lines[i].Position = new Vector2(3f * m, y);
+                y += lines[i].TextHeight + m;
                 width = Mathf.Max(width, lines[i].TextWidth);
             }
-            width += 8;
-            float height = y + 2;
+            width += 8f * m;
+            float height = y + 2f * m;
 
             float x = mouse.x + 8;
             float py = mouse.y + 10;
@@ -705,7 +735,9 @@ namespace JunkLootFilter
                 return;
             }
 
-            UpdateItemInfoPanel(InfoTip.BuildTokens(item));
+            TextFile.Token[] tokens = InfoTip.BuildTokens(item);
+            tip.Remember(tokens);
+            UpdateItemInfoPanel(tokens);
             tip.SetItem(item, PlayerEntity);
         }
 
@@ -746,7 +778,7 @@ namespace JunkLootFilter
             if (itemInfoPanel != null)
             {
                 bool hover = JunkUi.IsHoveringItem(localItemListScroller, remoteItemListScroller, paperDoll, accessoryButtons, goldButton);
-                tip.Place(hover);
+                tip.Place(hover, WindowScaler.FactorFor(this));
             }
         }
 
@@ -1022,7 +1054,9 @@ namespace JunkLootFilter
                 return;
             }
 
-            UpdateItemInfoPanel(InfoTip.BuildTokens(item));
+            TextFile.Token[] tokens = InfoTip.BuildTokens(item);
+            tip.Remember(tokens);
+            UpdateItemInfoPanel(tokens);
             tip.SetItem(item, PlayerEntity);
         }
 
@@ -1205,7 +1239,7 @@ namespace JunkLootFilter
             if (itemInfoPanel != null)
             {
                 bool hover = JunkUi.IsHoveringItem(localItemListScroller, remoteItemListScroller, paperDoll, accessoryButtons, null);
-                tip.Place(hover);
+                tip.Place(hover, WindowScaler.FactorFor(this));
             }
         }
 

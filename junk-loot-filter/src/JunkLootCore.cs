@@ -143,6 +143,16 @@ namespace JunkLootFilter
             Apply();
         }
 
+        // How much smaller than full size this window is drawn (1 = classic size).
+        public static float FactorFor(object window)
+        {
+            if (JunkStore.S == null || Skipped(window))
+                return 1f;
+            float factor = Mathf.Clamp(JunkStore.S.windowScale, 0.4f, 1f);
+            float f = IsSmallDialog(window) ? 1f - (1f - factor) * 0.5f : factor;
+            return (f >= 0.999f) ? 1f : f;
+        }
+
         static void Apply()
         {
             if (JunkStore.S == null || DaggerfallUI.Instance == null)
@@ -161,7 +171,7 @@ namespace JunkLootFilter
                 {
                     Panel native = baseWindow.NativePanel;
                     float fit = Mathf.Min(Screen.width / native.Size.x, Screen.height / native.Size.y);
-                    float f = IsSmallDialog(baseWindow) ? 1f - (1f - factor) * 0.5f : factor;
+                    float f = FactorFor(baseWindow);
                     native.MaxAutoScale = (f >= 0.999f) ? 0f : fit * f;
                 }
 
