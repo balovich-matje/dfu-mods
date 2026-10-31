@@ -1,0 +1,6 @@
+# build output, local tooling and OS cruft
+build/
+venv/
+__pycache__/
+*.pyc
+.DS_Store
