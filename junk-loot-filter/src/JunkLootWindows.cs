@@ -768,6 +768,13 @@ namespace JunkLootFilter
             base.OnPush();
             extraMode = ModeNone;
             UpdateModeButtons();
+            CorpseCleaner.OpenLoot = lootTarget;
+        }
+
+        public override void OnPop()
+        {
+            base.OnPop();
+            CorpseCleaner.OpenLoot = null;
         }
 
         public override void Update()
@@ -951,9 +958,14 @@ namespace JunkLootFilter
             }
 
             if (filteredOut > 0)
+            {
                 JunkUi.Hud("Looted " + taken + " item(s), left " + filteredOut + " filtered out.");
+                CorpseCleaner.MarkLeftover(lootTarget);
+            }
             else
+            {
                 JunkUi.Hud("Looted " + taken + " item(s).");
+            }
             CloseWindow();
         }
 

@@ -18,7 +18,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "src")
 MOD_NAME = "JunkLootFilter"
 MOD_TITLE = "Junk and Loot Filter"
-SOURCES = ["JunkLootCore.cs", "JunkLootWindows.cs", "JunkLootSettingsWindow.cs"]
+SOURCES = ["JunkLootCore.cs", "JunkLootWindows.cs", "JunkLootSettingsWindow.cs", "JunkLootWorld.cs"]
 
 MANIFEST = {
     "ModTitle": MOD_TITLE,
@@ -49,8 +49,9 @@ def main():
     by_name = {}
     for o in text_assets:
         by_name[o.read_typetree()["m_Name"]] = o
+    # The donor's four reusable text assets (its settings file is only a spare slot for us).
     donor_slots = [by_name["LeaveGuild.cs"], by_name["LeaveGuildSaveData.cs"],
-                   by_name["LeaveGuildServicePopupWindow.cs"]]
+                   by_name["LeaveGuildServicePopupWindow.cs"], by_name["modsettings"]]
     manifest_slot = by_name["LeaveGuild.dfmod"]
     keep = set(o.path_id for o in donor_slots) | {manifest_slot.path_id, bundle_obj.path_id}
 

@@ -65,6 +65,8 @@ namespace JunkLootFilter
         {
             JunkStore.Load();
             gameObject.AddComponent<WindowScaler>();
+            gameObject.AddComponent<HudTweaks>();
+            gameObject.AddComponent<CorpseCleaner>();
             mod.SaveDataInterface = this;
             mod.IsReady = true;
         }
@@ -240,6 +242,14 @@ namespace JunkLootFilter
         public int[] keys;
         // Size of DFU's windows as a fraction of the full-screen size (1 = classic).
         public float windowScale;
+        // Settings file version: lets new on/off options default to on for files written by older versions.
+        public int version;
+        // Skyrim-style vitals bars along the bottom of the screen.
+        public bool skyrimBars;
+        // Effect names and green/red borders on the HUD icons.
+        public bool effectLabels;
+        // Empty corpses fade away.
+        public bool corpseCleanup;
 
         // Views onto the fields above, built by JunkStore.Load().
         [NonSerialized] public FilterProfile loot;
@@ -350,6 +360,13 @@ namespace JunkLootFilter
                 S.keys = DefaultKeys();
             if (S.windowScale < 0.4f || S.windowScale > 1f)
                 S.windowScale = 0.7f;
+            if (S.version < 2)
+            {
+                S.skyrimBars = true;
+                S.effectLabels = true;
+                S.corpseCleanup = true;
+                S.version = 2;
+            }
 
             S.loot = new FilterProfile(S.lootCategories, S.lootMaterials, S.lootWhite, S.lootBlack);
             S.sell = new FilterProfile(S.sellCategories, S.sellMaterials, S.sellWhite, S.sellBlack);

@@ -19,6 +19,7 @@ namespace JunkLootFilter
         const int TabSell = 1;
         const int TabJunk = 2;
         const int TabKeys = 3;
+        const int TabMisc = 4;
         const int PageMain = 0;
         const int PageWhiteList = 1;
         const int PageBlackList = 2;
@@ -38,7 +39,7 @@ namespace JunkLootFilter
         int page = PageMain;
         Panel root;
         Panel content;
-        Button[] tabButtons = new Button[4];
+        Button[] tabButtons = new Button[5];
         int keySelected;
         int capturing = -1;
         float ignoreUntil;
@@ -62,11 +63,11 @@ namespace JunkLootFilter
 
             DaggerfallUI.AddTextLabel(DaggerfallUI.DefaultFont, new Vector2(8, 4), "JUNK & LOOT FILTER", root).TextColor = EdgeColor;
 
-            string[] tabNames = { "LOOT", "SELL", "JUNK", "MISC" };
-            for (int i = 0; i < 4; i++)
+            string[] tabNames = { "LOOT", "SELL", "JUNK", "KEYS", "MISC" };
+            for (int i = 0; i < 5; i++)
             {
                 int index = i;
-                tabButtons[i] = DaggerfallUI.AddTextButton(new Rect(8 + i * 52, 18, 50, 12), tabNames[i], root);
+                tabButtons[i] = DaggerfallUI.AddTextButton(new Rect(8 + i * 46, 18, 44, 12), tabNames[i], root);
                 tabButtons[i].Hotkey = JunkUi.Key(KeyCode.Alpha1 + i);
                 tabButtons[i].OnMouseClick += delegate (BaseScreenComponent sender, Vector2 position)
                 {
@@ -80,7 +81,7 @@ namespace JunkLootFilter
                 };
             }
 
-            Button done = DaggerfallUI.AddTextButton(new Rect(236, 18, 56, 12), "DONE", root);
+            Button done = DaggerfallUI.AddTextButton(new Rect(244, 18, 48, 12), "DONE", root);
             done.OnMouseClick += delegate (BaseScreenComponent sender, Vector2 position)
             {
                 DaggerfallUI.Instance.PlayOneShot(SoundClips.ButtonClick);
@@ -109,11 +110,13 @@ namespace JunkLootFilter
 
         void Rebuild()
         {
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < 5; i++)
                 tabButtons[i].BackgroundColor = (i == tab) ? ActiveColor : ButtonColor;
 
             content.Components.Clear();
-            if (tab == TabKeys)
+            if (tab == TabMisc)
+                BuildMisc();
+            else if (tab == TabKeys)
                 BuildKeys();
             else if (tab == TabJunk)
                 BuildList(JunkStore.S.junk, "JUNK PATTERNS",
@@ -290,14 +293,6 @@ namespace JunkLootFilter
                 };
             }
 
-            Label(content, 8, 116, "WINDOW SIZE", EdgeColor);
-            Label(content, 8, 126, "Shrinks and centres the game's windows. 100% is the classic full-screen size.", HintColor);
-            Button smaller = DaggerfallUI.AddTextButton(new Rect(8, 137, 22, 12), "-", content);
-            smaller.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { ChangeWindowScale(-0.05f); };
-            Label(content, 40, 139, Mathf.RoundToInt(JunkStore.S.windowScale * 100f) + "%", DaggerfallUI.DaggerfallDefaultTextColor);
-            Button bigger = DaggerfallUI.AddTextButton(new Rect(74, 137, 22, 12), "+", content);
-            bigger.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { ChangeWindowScale(0.05f); };
-
             Button reset = DaggerfallUI.AddTextButton(new Rect(8, 33 + JunkStore.KeyCount * 13 + 3, 120, 12), "RESET KEYS", content);
             reset.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos)
             {
@@ -307,6 +302,30 @@ namespace JunkLootFilter
                 JunkStore.Save();
                 Rebuild();
             };
+        }
+
+        // ---- MISC page ----
+
+        void BuildMisc()
+        {
+            Label(content, 8, 2, "OTHER SETTINGS", EdgeColor);
+
+            AddToggle(8, 16, "Skyrim-style vitals bars", JunkStore.S.skyrimBars, delegate (bool v) { JunkStore.S.skyrimBars = v; });
+            Label(content, 22, 27, "Magicka, health and stamina along the bottom of the screen, with numbers.", HintColor);
+
+            AddToggle(8, 42, "Effect names and borders on the HUD", JunkStore.S.effectLabels, delegate (bool v) { JunkStore.S.effectLabels = v; });
+            Label(content, 22, 53, "Name under each active effect icon; green border for buffs, red for debuffs.", HintColor);
+
+            AddToggle(8, 68, "Corpse clean up", JunkStore.S.corpseCleanup, delegate (bool v) { JunkStore.S.corpseCleanup = v; });
+            Label(content, 22, 79, "Empty corpses fade away in 5 seconds; after a quick loot that left items, in 10.", HintColor);
+
+            Label(content, 8, 100, "WINDOW SIZE", EdgeColor);
+            Label(content, 8, 110, "Shrinks and centres the game's windows. 100% is the classic full-screen size.", HintColor);
+            Button smaller = DaggerfallUI.AddTextButton(new Rect(8, 123, 22, 12), "-", content);
+            smaller.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { ChangeWindowScale(-0.05f); };
+            Label(content, 40, 125, Mathf.RoundToInt(JunkStore.S.windowScale * 100f) + "%", DaggerfallUI.DaggerfallDefaultTextColor);
+            Button bigger = DaggerfallUI.AddTextButton(new Rect(74, 123, 22, 12), "+", content);
+            bigger.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { ChangeWindowScale(0.05f); };
         }
 
         void ChangeWindowScale(float delta)
@@ -388,6 +407,13 @@ namespace JunkLootFilter
                     break;
                 }
             }
+            else if (tab == TabMisc && Time.unscaledTime >= ignoreUntil)
+            {
+                if (Input.GetKeyDown(KeyCode.LeftArrow))
+                    ChangeWindowScale(-0.05f);
+                else if (Input.GetKeyDown(KeyCode.RightArrow))
+                    ChangeWindowScale(0.05f);
+            }
             else if (tab == TabKeys && Time.unscaledTime >= ignoreUntil)
             {
                 if (Input.GetKeyDown(KeyCode.UpArrow) && keySelected > 0)
@@ -404,14 +430,7 @@ namespace JunkLootFilter
                 {
                     StartCapture(keySelected);
                 }
-                else if (Input.GetKeyDown(KeyCode.LeftArrow))
-                {
-                    ChangeWindowScale(-0.05f);
-                }
-                else if (Input.GetKeyDown(KeyCode.RightArrow))
-                {
-                    ChangeWindowScale(0.05f);
-                }
+
             }
         }
 
