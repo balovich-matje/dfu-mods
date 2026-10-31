@@ -336,6 +336,7 @@ namespace JunkLootFilter
         Panel panel;
         MultiFormatTextLabel label;
         TextLabel[] lines = new TextLabel[MaxLines];
+        FramedPanel frame;
         int lineCount;
         float appliedScale = 1f;
         TextFile.Token[] lastTokens;
@@ -356,8 +357,7 @@ namespace JunkLootFilter
 
             panel.BackgroundTexture = null;
             panel.BackgroundColor = new Color(0.06f, 0.05f, 0.04f, 0.94f);
-            panel.Outline.Enabled = true;
-            panel.Outline.Color = new Color(0.8f, 0.68f, 0.2f, 1f);
+            panel.Outline.Enabled = false;
             label.VerticalAlignment = VerticalAlignment.None;
             label.Position = new Vector2(3, 2);
             label.MaxTextWidth = 62;
@@ -371,6 +371,13 @@ namespace JunkLootFilter
                 lines[i].ShadowColor = new Color(0f, 0f, 0f, 0.8f);
                 lines[i].Enabled = false;
             }
+
+            // DFU's compass border, drawn last so it sits over the text margins.
+            frame = new FramedPanel();
+            frame.AutoSize = AutoSizeModes.None;
+            frame.BackgroundColor = Color.clear;
+            frame.Position = Vector2.zero;
+            panel.Components.Add(frame);
 
             // Re-add as the last child so it draws above the item lists.
             nativePanel.Components.Remove(panel);
@@ -396,13 +403,89 @@ namespace JunkLootFilter
                 MacroHelper.ExpandMacros(ref magic, item);
                 all.AddRange(magic);
             }
+            if (item.maxCondition > 0)
+                InlineCondition(all, item);
             return all.ToArray();
+        }
+
+        // Replaces the "Condition: ..." row with a percentage after the item name: "Daedric Tanto (85%)".
+        static void InlineCondition(List<TextFile.Token> all, DaggerfallUnityItem item)
+        {
+            for (int i = 0; i < all.Count; i++)
+            {
+                TextFile.Token t = all[i];
+                if (t.formatting != TextFile.Formatting.Text || t.text == null || !t.text.TrimStart().StartsWith("Condition"))
+                    continue;
+
+                int end = i;
+                while (end + 1 < all.Count && (all[end + 1].formatting == TextFile.Formatting.Text
+                    || all[end + 1].formatting == TextFile.Formatting.TextHighlight
+                    || all[end + 1].formatting == TextFile.Formatting.PositionPrefix))
+                    end++;
+                // Every row ends with a justify token (centre, for this text).
+                if (end + 1 < all.Count && (all[end + 1].formatting == TextFile.Formatting.NewLine
+                    || all[end + 1].formatting == TextFile.Formatting.JustifyLeft || all[end + 1].formatting == TextFile.Formatting.JustifyCenter))
+                    end++;
+                all.RemoveRange(i, end - i + 1);
+
+                for (int j = 0; j < i && j < all.Count; j++)
+                {
+                    if (all[j].formatting == TextFile.Formatting.Text)
+                    {
+                        TextFile.Token name = all[j];
+                        name.text = name.text.TrimEnd() + " (" + item.ConditionPercentage + "%)";
+                        all[j] = name;
+                        break;
+                    }
+                }
+                return;
+            }
         }
 
         // The tokens currently shown, so the text can be laid out again when the scale changes.
         public void Remember(TextFile.Token[] tokens)
         {
             lastTokens = tokens;
+            FitWidth(tokens);
+        }
+
+        // The hover is only as wide as its text; long text wraps at the old fixed width.
+        void FitWidth(TextFile.Token[] tokens)
+        {
+            if (label == null || tokens == null)
+                return;
+            float scale = Mathf.Max(0.05f, label.TextScale);
+            float cap = 62f * appliedScale;
+            float widest = 0f;
+            float x = 0f;
+            int tab = 0;
+            for (int i = 0; i < tokens.Length; i++)
+            {
+                TextFile.Token t = tokens[i];
+                switch (t.formatting)
+                {
+                    case TextFile.Formatting.Text:
+                    case TextFile.Formatting.TextHighlight:
+                        if (!string.IsNullOrEmpty(t.text))
+                        {
+                            float w = label.Font.CalculateTextWidth(t.text, Vector2.one);
+                            widest = Mathf.Max(widest, x + w);
+                            x += w;
+                        }
+                        break;
+                    case TextFile.Formatting.PositionPrefix:
+                        x = ((t.x != 0) ? t.x : (++tab) * 35f) / scale;
+                        break;
+                    case TextFile.Formatting.NewLine:
+                    case TextFile.Formatting.JustifyLeft:
+                    case TextFile.Formatting.JustifyCenter:
+                    case TextFile.Formatting.Nothing:
+                        x = 0f;
+                        tab = 0;
+                        break;
+                }
+            }
+            label.MaxTextWidth = Mathf.RoundToInt(Mathf.Clamp(Mathf.Ceil(widest) + 4f, 16f, cap));
         }
 
         // Counteracts the window shrinking (windowFactor) so the hover stays the same size on screen.
@@ -410,7 +493,6 @@ namespace JunkLootFilter
         {
             appliedScale = m;
             label.TextScale = 0.5f * m;
-            label.MaxTextWidth = Mathf.RoundToInt(62f * m);
             label.Position = new Vector2(3f * m, 2f * m);
             for (int i = 0; i < MaxLines; i++)
             {
@@ -418,7 +500,10 @@ namespace JunkLootFilter
                     lines[i].TextScale = 0.5f * m;
             }
             if (lastTokens != null)
+            {
+                FitWidth(lastTokens);
                 label.SetText(lastTokens);
+            }
         }
 
         public void ClearCompare()
@@ -465,12 +550,21 @@ namespace JunkLootFilter
             if (slot == EquipSlots.None)
                 return;
             DaggerfallUnityItem eq = table.GetItem(slot);
+            if (eq == null && item.ItemGroup == ItemGroups.Weapons && item.TemplateIndex != (int)Weapons.Arrow)
+            {
+                // A one-handed weapon would go in the empty hand, so compare with the weapon in the other one.
+                eq = table.GetItem(EquipSlots.RightHand);
+                if (eq == null || eq.ItemGroup != ItemGroups.Weapons)
+                    eq = table.GetItem(EquipSlots.LeftHand);
+                if (eq != null && eq.ItemGroup != ItemGroups.Weapons)
+                    eq = null;
+            }
             if (eq == null || eq == item)
                 return;
 
             string eqName = eq.LongName ?? string.Empty;
-            if (eqName.Length > 30)
-                eqName = eqName.Substring(0, 28) + "..";
+            if (eqName.Length > 24)
+                eqName = eqName.Substring(0, 22) + "..";
             AddLine("vs " + eqName, Muted);
 
             if (item.ItemGroup == ItemGroups.Weapons && eq.ItemGroup == ItemGroups.Weapons && item.TemplateIndex != (int)Weapons.Arrow)
@@ -488,12 +582,6 @@ namespace JunkLootFilter
                 int n = item.GetMaterialArmorValue();
                 int e = eq.GetMaterialArmorValue();
                 AddDelta("Armor", n.ToString("+0;-0;0"), Signed(n - e), n > e ? 1 : (n < e ? -1 : 0));
-            }
-
-            if (item.maxCondition > 0 && eq.maxCondition > 0 && item.ConditionPercentage != eq.ConditionPercentage)
-            {
-                int d = item.ConditionPercentage - eq.ConditionPercentage;
-                AddDelta("Condition", item.ConditionPercentage + "%", Signed(d) + "%", d > 0 ? 1 : -1);
             }
 
             float wd = item.weightInKg - eq.weightInKg;
@@ -544,6 +632,8 @@ namespace JunkLootFilter
 
             panel.Size = new Vector2(width, height);
             panel.Position = new Vector2(x, py);
+            frame.Size = new Vector2(width, height);
+            frame.FrameScale = Mathf.Max(1f, Mathf.Round(nativePanel.LocalScale.x * 0.5f));
             panel.Enabled = true;
         }
     }

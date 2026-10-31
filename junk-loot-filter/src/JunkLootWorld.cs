@@ -597,8 +597,8 @@ namespace JunkLootFilter
             {
                 l = DaggerfallUI.AddTextLabel(DaggerfallUI.DefaultFont, Vector2.zero, string.Empty, icon);
                 l.HorizontalAlignment = HorizontalAlignment.Center;
-                l.ShadowPosition = new Vector2(1f, 1f);
-                l.ShadowColor = new Color(0f, 0f, 0f, 0.95f);
+                l.ShadowPosition = new Vector2(1.5f, 1.5f);
+                l.ShadowColor = new Color(0f, 0f, 0f, 1f);
                 l.TextColor = new Color(0.97f, 0.95f, 0.88f, 1f);
                 labels[icon] = l;
             }
@@ -666,8 +666,8 @@ namespace JunkLootFilter
             float h = Screen.height;
             float pad = Mathf.Max(8f, h * 0.025f);
             float iconPx = Mathf.Clamp(h * 0.034f, 20f, 40f);
-            float textPx = Mathf.Clamp(iconPx * 0.36f, 8f, 16f);
-            float slotW = iconPx * 2.4f;
+            float textPx = Mathf.Clamp(iconPx * 0.42f, 9f, 18f);
+            float gap = iconPx * 0.3f;
             float rowH = iconPx + textPx + 10f;
             int thickness = Mathf.Clamp(Mathf.RoundToInt(h / 500f), 1, 4);
 
@@ -681,6 +681,7 @@ namespace JunkLootFilter
                     buffCount++;
             }
             int buffRows = (buffCount + IconsPerRow - 1) / IconsPerRow;
+            float[] cursorX = new float[2];
 
             for (int i = 0; i < active.Count; i++)
             {
@@ -690,11 +691,19 @@ namespace JunkLootFilter
                     bad = false;
 
                 int slot = bad ? debuffs++ : buffs++;
-                float rowStart = pad + (bad ? buffRows * rowH : 0f);
+                int col = slot % IconsPerRow;
+                if (col == 0)
+                    cursorX[bad ? 1 : 0] = pad;
                 icon.Size = new Vector2(iconPx, iconPx);
-                icon.Position = new Vector2(Mathf.Round(pad + (slot % IconsPerRow) * slotW + (slotW - iconPx) * 0.5f),
-                    Mathf.Round(rowStart + (slot / IconsPerRow) * rowH));
                 Decorate(icon, true, bad, icon.ToolTipText, textPx, thickness);
+
+                // Each icon takes the room its name needs, so the spacing stays even whatever the names are.
+                float textW = labels[icon].TextWidth;
+                float slotW = Mathf.Max(iconPx, textW);
+                float rowStart = pad + (bad ? buffRows * rowH : 0f);
+                icon.Position = new Vector2(Mathf.Round(cursorX[bad ? 1 : 0] + (slotW - iconPx) * 0.5f),
+                    Mathf.Round(rowStart + (slot / IconsPerRow) * rowH));
+                cursorX[bad ? 1 : 0] += slotW + gap;
             }
         }
 
@@ -716,7 +725,7 @@ namespace JunkLootFilter
             }
 
             label = LabelFor(icon);
-            string shown = name.Length > 12 ? name.Substring(0, 11) + "." : name;
+            string shown = name.Length > 16 ? name.Substring(0, 15) + "." : name;
             if (label.Text != shown)
                 label.Text = shown;
             label.TextScale = textPx / Mathf.Max(1, DaggerfallUI.DefaultFont.GlyphHeight);

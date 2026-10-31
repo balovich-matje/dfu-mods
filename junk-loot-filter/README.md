@@ -39,8 +39,10 @@ Built for DFU 1.1.1. The mod is plain C# in `src/`; DFU compiles it when the gam
 - The item info panel follows the cursor instead of sitting in the button column, which frees the room the extra
   buttons use, and DFU's own name tooltip is hidden so you don't get two. It also shows what DFU only reveals after a
   second click on INFO: an item's magic powers, or a potion recipe's ingredients. For gear that goes in a slot you
-  have filled it adds a "vs <equipped item>" block: damage, armor, condition and weight deltas in green (better) or
-  red (worse), and "Gains/Loses magic powers". (Only when DFU's "inventory info panel" option is on; otherwise
+  have filled it adds a "vs <equipped item>" block (a one-handed weapon is compared with the weapon in your other
+  hand when its own slot is empty): damage, armor and weight deltas in green (better) or red (worse), and
+  "Gains/Loses magic powers". The condition shows after the name, as in "Daedric Tanto (85%)". The box is only as
+  wide as its text, framed with DFU's compass border. (Only when DFU's "inventory info panel" option is on; otherwise
   DFU's own tooltips are used.)
 
 Settings are saved to `JunkLootFilter.json` in DFU's data folder; item locks go into each save game.
