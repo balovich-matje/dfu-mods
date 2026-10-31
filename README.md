@@ -8,3 +8,7 @@ Quality-of-life and visual mods for [Daggerfall Unity](https://www.dfworkshop.ne
 
 Each mod lives in its own folder with its own README and build notes. No game files or third-party assets are
 included here.
+
+## License
+
+[MIT](LICENSE).

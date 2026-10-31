@@ -23,7 +23,7 @@ SOURCES = ["JunkLootCore.cs", "JunkLootWindows.cs", "JunkLootSettingsWindow.cs"]
 MANIFEST = {
     "ModTitle": MOD_TITLE,
     "ModVersion": "0.1.0",
-    "ModAuthor": "local build",
+    "ModAuthor": "balovich-matje",
     "DFUnity_Version": "1.0.0",
     "ModDescription": "Quick loot with a loot filter, quick sell, and always-sell junk tagging.",
     "GUID": "8c6f1d52-3a0e-4b7a-9e44-5d2b7a1c90f3",
