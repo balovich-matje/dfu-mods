@@ -75,6 +75,9 @@ namespace JunkLootFilter
         {
             UIWindowFactory.RegisterCustomUIWindow(UIWindowType.Inventory, typeof(ModernInventoryWindow));
             UIWindowFactory.RegisterCustomUIWindow(UIWindowType.Trade, typeof(JunkTradeWindow));
+            UIWindowFactory.RegisterCustomUIWindow(UIWindowType.SpellMaker, typeof(ModernSpellMakerWindow));
+            UIWindowFactory.RegisterCustomUIWindow(UIWindowType.EffectSettingsEditor, typeof(ModernEffectEditorWindow));
+            UIWindowFactory.RegisterCustomUIWindow(UIWindowType.ItemMaker, typeof(ModernItemMakerWindow));
             Debug.Log("[JunkLoot] Windows registered.");
         }
     }
@@ -93,7 +96,7 @@ namespace JunkLootFilter
             "DaggerfallStartWindow", "DaggerfallUnitySetupGameWizard", "DaggerfallStartNewGameWizard",
             "DaggerfallVidPlayerWindow", "DemoFLCWindow", "DemoClassQuestionsWindow", "DaggerfallLoadClassicGameWindow",
             "DaggerfallAutomapWindow", "DaggerfallExteriorAutomapWindow", "DaggerfallTravelMapWindow",
-            "DaggerfallBookReaderWindow", "DaggerfallCourtWindow", "DaggerfallDaedraSummonedWindow", "ModernInventoryWindow"
+            "DaggerfallBookReaderWindow", "DaggerfallCourtWindow", "DaggerfallDaedraSummonedWindow", "ModernInventoryWindow", "ModernSpellMakerWindow", "ModernEffectPickerWindow", "ModernEffectEditorWindow", "ModernItemMakerWindow", "ModernEnchantPickerWindow"
         };
 
         // Small dialogs shrink only half as much, or their text becomes too small to read comfortably.

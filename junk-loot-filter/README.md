@@ -18,7 +18,20 @@ Built for DFU 1.1.1. The mod is plain C# in `src/`; DFU compiles it when the gam
     a table of that container, its weight, and its own button: **Quick stack**, **Quick loot** or nothing.
   - The window and the side panel together take at most 90% of the screen; the inventory stays put when the
     side panel opens.
-  - Two looks, chosen in the settings (MISC tab, "Inventory frames"): separate frames, or one shared container.
+  - Two looks, chosen in the settings (MISC tab, "Inventory frames"): separate frames, or one shared container. The
+    spell and enchanting windows follow the same setting.
+- **Spell maker** (Mages Guild): effects as cards (school colour, name, cost, click to edit, x to remove), a cost box
+  (gold cost, gold held, magic cost, max SP), the spell's name, element, cast type and icon, and Buy / New / Exit.
+  Elements and cast types the chosen effects don't allow are dimmed. **Add effect** opens one card per school of magic
+  (Alteration blue, Destruction red, Illusion purple, Mysticism teal, Restoration green, Thaumaturgy orange) listing
+  every effect; click one to add it.
+- **Spell effect editor**: duration, chance and magnitude with base, bonus and "per N levels" fields (click the ends
+  of a field, hold to repeat, or use the mouse wheel), and a column showing the result at your current level.
+- **Item enchanting** (Mages Guild): a table of everything you can enchant (name, material, enchantment points; filter
+  by name, material and minimum points; click a header to sort), your powers and side effects with the points each one
+  uses or gives back, a points meter, slots used out of 10, gold cost and gold held. **Add powers** and **Add side
+  effects** open a list of every effect that fits, each with its points; tick several, and the meter previews the
+  total before you add them. Items that are already enchanted are not listed: the game allows enchanting an item once.
 - **Quick Loot** button on a corpse's or chest's side panel (default key `L`): takes everything the loot filter
   allows, plus gold and quest items, then closes the window. If you can't carry it all, it stays open and says how
   much is left.

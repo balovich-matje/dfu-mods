@@ -21,7 +21,7 @@ MOD_TITLE = "Junk and Loot Filter"
 # The donor has room for four source files, so files listed together are merged into the first one's slot.
 SOURCE_GROUPS = [
     ["JunkLootCore.cs"],
-    ["JunkLootWindows.cs", "JunkLootModern.cs"],
+    ["JunkLootWindows.cs", "JunkLootModern.cs", "JunkLootCraft.cs", "JunkLootEnchant.cs"],
     ["JunkLootSettingsWindow.cs"],
     ["JunkLootWorld.cs"],
 ]
