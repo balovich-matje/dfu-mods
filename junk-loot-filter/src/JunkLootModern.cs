@@ -509,6 +509,11 @@ namespace JunkLootFilter
         public EquipSlots[] Slots;
         public string[] Labels;
         public bool Strip;
+        // Strip only: pairs of cells sit a little closer together than the pairs do to each other.
+        public int GroupSize;
+        // Rows only: text drawn next to the icon, and its colour.
+        public Func<int, string> Values;
+        public Func<int, Color> ValueColors;
         public float RowH = 24f;
         public float TextScale = 1.5f;
 
@@ -544,11 +549,15 @@ namespace JunkLootFilter
             int n = Slots.Length;
             if (Strip)
             {
-                float gap = Mathf.Max(2f, Mathf.Round(r.height * 0.1f));
-                float cell = Mathf.Min(r.height - 2f * gap, Mathf.Floor((r.width - (n + 1) * gap) / n));
-                float total = n * cell + (n - 1) * gap;
+                float gap = Mathf.Max(2f, Mathf.Round(r.height * 0.08f));
+                int groups = (GroupSize > 0) ? n / GroupSize : 1;
+                float groupGap = (GroupSize > 0) ? gap * 3f : gap;
+                float inner = (n - groups) * gap + (groups - 1) * groupGap;
+                float cell = Mathf.Min(r.height - 2f * gap, Mathf.Floor((r.width - 2f * gap - inner) / n));
+                float total = n * cell + inner;
                 float x0 = r.x + Mathf.Round((r.width - total) / 2f);
-                return new Rect(x0 + i * (cell + gap), r.y + Mathf.Round((r.height - cell) / 2f), cell, cell);
+                int gi = (GroupSize > 0) ? i / GroupSize : 0;
+                return new Rect(x0 + i * cell + (i - gi) * gap + gi * groupGap, r.y + Mathf.Round((r.height - cell) / 2f), cell, cell);
             }
             return new Rect(r.x, r.y + i * RowH, r.width, RowH);
         }
@@ -616,20 +625,21 @@ namespace JunkLootFilter
                 }
                 else
                 {
-                    if (i == hover && item != null)
-                        Skin.Fill(c, Skin.Hover);
-                    else if ((i & 1) == 1)
-                        Skin.Fill(c, Skin.Zebra);
-                    float pad = Mathf.Round(RowH * 0.22f);
-                    float iconW = Mathf.Round(RowH * 1.25f);
+                    float pad = Mathf.Round(RowH * 0.12f);
+                    Rect icon = new Rect(c.x + pad, c.y + pad, Mathf.Round(RowH * 1.25f), RowH - 2f * pad);
+                    Skin.Fill(icon, (i == hover && item != null) ? Skin.Hover : Skin.Zebra);
+                    Skin.Fill(new Rect(icon.x, icon.y, icon.width, 1f), Skin.Line);
+                    Skin.Fill(new Rect(icon.x, icon.yMax - 1f, icon.width, 1f), Skin.Line);
+                    Skin.Fill(new Rect(icon.x, icon.y, 1f, icon.height), Skin.Line);
+                    Skin.Fill(new Rect(icon.xMax - 1f, icon.y, 1f, icon.height), Skin.Line);
                     if (item != null)
-                        Skin.DrawItemIcon(new Rect(c.x + pad, c.y + 1f, iconW, RowH - 2f), item);
-                    float tx = c.x + pad + iconW + pad;
-                    float tw = c.xMax - tx - pad;
-                    if (item != null)
-                        Skin.TextInRow(Skin.Fit(item.LongName, tw, TextScale), tx, c.y, RowH, TextScale, item.IsEnchanted ? Skin.Magic : Skin.White);
-                    else
-                        Skin.TextInRow(Skin.Fit(Labels[i], tw, TextScale), tx, c.y, RowH, TextScale, Skin.Muted);
+                        Skin.DrawItemIcon(new Rect(icon.x + 2f, icon.y + 2f, icon.width - 4f, icon.height - 4f), item);
+                    string text = (Values != null) ? Values(i) : string.Empty;
+                    float tx = icon.xMax + pad * 2f;
+                    if (!string.IsNullOrEmpty(text))
+                        Skin.TextInRow(text, tx, c.y, RowH, TextScale, (ValueColors != null) ? ValueColors(i) : Skin.White);
+                    else if (i == hover && item == null && Labels != null)
+                        Skin.TextInRow(Labels[i], tx, c.y, RowH, TextScale * 0.85f, Skin.Muted);
                 }
             }
         }
@@ -926,18 +936,19 @@ namespace JunkLootFilter
 
     public class ModernInventoryWindow : DaggerfallInventoryWindow
     {
+        // The first seven rows are armor slots and show their armor class; the weapons show their damage.
         static readonly EquipSlots[] GearSlots =
         {
-            EquipSlots.RightHand, EquipSlots.LeftHand, EquipSlots.Head, EquipSlots.RightArm, EquipSlots.LeftArm,
-            EquipSlots.ChestArmor, EquipSlots.ChestClothes, EquipSlots.Gloves, EquipSlots.LegsArmor, EquipSlots.LegsClothes,
-            EquipSlots.Feet, EquipSlots.Cloak1, EquipSlots.Cloak2
+            EquipSlots.Head, EquipSlots.RightArm, EquipSlots.LeftArm, EquipSlots.ChestArmor, EquipSlots.Gloves,
+            EquipSlots.LegsArmor, EquipSlots.Feet, EquipSlots.RightHand, EquipSlots.LeftHand,
+            EquipSlots.ChestClothes, EquipSlots.LegsClothes, EquipSlots.Cloak1, EquipSlots.Cloak2
         };
 
         static readonly string[] GearLabels =
         {
-            "Right hand", "Left hand", "Helm", "Right pauldron", "Left pauldron",
-            "Cuirass", "Shirt", "Gauntlets", "Greaves", "Pants",
-            "Boots", "Cloak", "Cloak"
+            "Helm", "Right pauldron", "Left pauldron", "Cuirass", "Gauntlets",
+            "Greaves", "Boots", "Right hand", "Left hand",
+            "Shirt", "Pants", "Cloak", "Cloak"
         };
 
         static readonly EquipSlots[] TrinketSlots =
@@ -988,6 +999,8 @@ namespace JunkLootFilter
         public ModernInventoryWindow(IUserInterfaceManager uiManager, DaggerfallBaseWindow previous = null)
             : base(uiManager, previous)
         {
+            // The paper doll is only a picture here; the armor values are in the gear column.
+            paperDoll = new PaperDoll(false);
         }
 
         // ---- Setup ----
@@ -1033,6 +1046,8 @@ namespace JunkLootFilter
             gear = new SlotView();
             gear.Slots = GearSlots;
             gear.Labels = GearLabels;
+            gear.Values = GearValue;
+            gear.ValueColors = GearValueColor;
             gear.OnLeft = delegate (DaggerfallUnityItem item) { UnequipItem(item); };
             gear.OnRight = delegate (DaggerfallUnityItem item, Vector2 at) { menu.Open(at, EquippedEntries(item)); };
             gearFrame.Components.Add(gear);
@@ -1203,25 +1218,35 @@ namespace JunkLootFilter
             float fs = Mathf.Max(1, Mathf.RoundToInt(H / 700f));
             float b = fs * 2f + 2f;
 
-            float mainH = Mathf.Round(H * 0.86f);
-            float mainW = Mathf.Round(Mathf.Min(W * 0.60f, mainH * 1.9f));
-            float mainX = Mathf.Round((W - mainW) / 2f);
-            float mainY = Mathf.Round((H - mainH) / 2f);
+            // The inventory and the side panel together take at most 90% of the screen, left-anchored inside that
+            // span so the inventory doesn't move when the side panel opens.
+            float spanW = Mathf.Min(W * 0.90f, H * 0.86f * 2.9f);
+            float spanX = Mathf.Round((W - spanW) / 2f);
             float inset = shared ? pad : 0f;
-            float ix = mainX + inset;
-            float iy = mainY + inset;
-            float iw = mainW - 2f * inset;
-            float ih = mainH - 2f * inset;
+            float mainH = Mathf.Round(H * 0.86f) - 2f * inset;
+            float mainY = Mathf.Round((H - mainH) / 2f);
+            float ix = spanX + inset;
+            float iy = mainY;
+            float ih = mainH;
+            float sideW = Mathf.Round(Mathf.Max(rowH * 8f, spanW * 0.19f));
+            float iw = spanW - 2f * inset - pad - sideW;
+            float sideX = ix + iw + pad;
 
-            float gearW = Mathf.Round(iw * 0.19f);
-            float paperW = Mathf.Round(iw * 0.19f);
-            float tableW = iw - gearW - paperW - 2f * pad;
-            float trinketW = gearW + pad + paperW;
-            float topH = Mathf.Max(Mathf.Round(rowH * 1.25f), Mathf.Floor((trinketW - 2f * pad) / 12f) + Mathf.Round(pad * 1.4f));
+            float topH = Mathf.Round(rowH * 1.7f);
             float botH = Mathf.Round(rowH * 1.45f);
             float midH = ih - topH - botH - 2f * pad;
             float midY = iy + topH + pad;
             float botY = midY + midH + pad;
+
+            // Gear column: icon and value per slot. Paper doll: as tall as the row allows.
+            float gearRow = Mathf.Floor((midH - 2f * b) / GearSlots.Length);
+            gearRow = Mathf.Min(gearRow, Mathf.Round(rowH * 1.6f));
+            float gearTs = ts * 0.95f;
+            float gearW = Mathf.Round(gearRow * 1.25f + Skin.Width("88-88", gearTs) + pad * 3.5f + 2f * b);
+            float paperW = Mathf.Round((midH - 2f * b - pad) * 110f / 184f + 2f * b + pad);
+            paperW = Mathf.Min(paperW, Mathf.Round(iw * 0.34f));
+            float tableW = iw - gearW - paperW - 2f * pad;
+            float trinketW = gearW + pad + paperW;
             float tableX = ix + gearW + pad + paperW + pad;
 
             menu.RowH = Mathf.Round(rowH * 0.9f);
@@ -1248,8 +1273,9 @@ namespace JunkLootFilter
             trinkets.TextScale = ts;
             Fill(tabBar, tableW, topH, 0f);
             tabBar.TextScale = ts * 1.05f;
-            gear.RowH = Mathf.Round(rowH * 0.92f);
-            gear.TextScale = ts * 0.92f;
+            trinkets.GroupSize = 2;
+            gear.RowH = gearRow;
+            gear.TextScale = gearTs;
             gear.Position = new Vector2(b, b);
             gear.Size = new Vector2(gearW - 2f * b, midH - 2f * b);
 
@@ -1279,9 +1305,6 @@ namespace JunkLootFilter
             PlaceButtonRight(setupBtn, rx, btnY, btnH, ts, pad);
 
             // Side panel to the right of the main window.
-            float sideX = shared ? mainX + mainW : mainX + mainW + pad;
-            float sideW = Mathf.Round(Mathf.Min(W * 0.18f, W - sideX - pad - (shared ? pad : 0f)));
-            sideW = Mathf.Max(sideW, rowH * 6f);
             sideHeadFrame.Enabled = side;
             sideFrame.Enabled = side;
             sideBottomFrame.Enabled = side && (usingWagon || quickLoot);
@@ -1306,8 +1329,8 @@ namespace JunkLootFilter
             quick.Size = new Vector2(sideW - 2f * pad, btnH);
             quick.Label.TextScale = ts;
 
-            float backR = side ? sideX + sideW + (shared ? pad : 0f) : mainX + mainW;
-            Place(backdrop, mainX, mainY, backR - mainX, mainH);
+            float backR = (side ? sideX + sideW : ix + iw) + inset;
+            Place(backdrop, ix - inset, iy - inset, backR - (ix - inset), ih + 2f * inset);
             RefreshButtonHints();
         }
 
@@ -1591,6 +1614,43 @@ namespace JunkLootFilter
         }
 
         // ---- Texts ----
+
+        int ArmorModifier()
+        {
+            return PlayerEntity.IncreasedArmorValueModifier + PlayerEntity.DecreasedArmorValueModifier;
+        }
+
+        string GearValue(int i)
+        {
+            if (i < 7)
+            {
+                int ac = (100 - (PlayerEntity.ArmorValues[i] + ArmorModifier())) / 5;
+                return ac.ToString();
+            }
+            DaggerfallUnityItem item = PlayerEntity.ItemEquipTable.GetItem(GearSlots[i]);
+            if (item == null)
+                return string.Empty;
+            if (item.ItemGroup == ItemGroups.Weapons)
+            {
+                int mod = item.GetWeaponMaterialModifier();
+                return (item.GetBaseDamageMin() + mod) + "-" + (item.GetBaseDamageMax() + mod);
+            }
+            if (item.ItemGroup == ItemGroups.Armor)
+                return "+" + item.GetMaterialArmorValue();
+            return string.Empty;
+        }
+
+        Color GearValueColor(int i)
+        {
+            if (i >= 7)
+                return Skin.White;
+            int mod = ArmorModifier();
+            if (mod > 0)
+                return DaggerfallUI.DaggerfallUnityStatDrainedTextColor;
+            if (mod < 0)
+                return DaggerfallUI.DaggerfallUnityStatIncreasedTextColor;
+            return Skin.White;
+        }
 
         string CarryText()
         {

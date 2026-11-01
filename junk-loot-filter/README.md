@@ -4,17 +4,20 @@ Built for DFU 1.1.1. The mod is plain C# in `src/`; DFU compiles it when the gam
 
 ## Features
 - **Modern inventory** (replaces DFU's classic inventory window): a big table window in the style of SkyUI. Top row:
-  the twelve trinket slots (amulets, bracelets, rings, bracers, marks, crystals) and five category tabs - Weapons,
+  the twelve trinket slots (amulets, bracelets, rings, bracers, marks, crystals, in pairs) and five category tabs - Weapons,
   Armor, Clothes (jewelry too), Ingredients, Misc - with item counts; magic items sit in the tab of their type, shown
-  in blue. Middle: equipped gear, the paper doll, and a table of the open tab with icon, type, name, weight, price and
+  in blue. Middle: a column of equipped gear (icons only, with the armor class of each armor slot and the damage of the
+  weapons; hover for the name), the paper doll as a plain picture, and a table of the open tab with icon, type, name, weight, price and
   gold per kg (click a header to sort; the mouse wheel scrolls). Bottom bar: Wagon, Gold, Setup, Exit.
   - Left click equips or uses an item, `Shift`+click moves it to the side panel (or drops it), middle click cycles
     variants. Left click on an equipped item takes it off.
   - **Right click** opens a menu: Equip/Use, Info, Move to cart/Drop, Lock, Tag as junk (and Unequip for worn gear).
   - Number keys `1`-`5` pick the tab. `K` tags and `O` locks the item under the mouse, `T` quick stacks, `L` quick
     loots, `F` opens the settings (all rebindable).
-  - **Side panel** to the right of the centred window while the cart, a corpse/chest or the ground has items:
+  - **Side panel** at the right edge while the cart, a corpse/chest or the ground has items:
     a table of that container, its weight, and its own button: **Quick stack**, **Quick loot** or nothing.
+  - The window and the side panel together take at most 90% of the screen; the inventory stays put when the
+    side panel opens.
   - Two looks, chosen in the settings (MISC tab, "Inventory frames"): separate frames, or one shared container.
 - **Quick Loot** button on a corpse's or chest's side panel (default key `L`): takes everything the loot filter
   allows, plus gold and quest items, then closes the window. If you can't carry it all, it stays open and says how
