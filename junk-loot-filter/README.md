@@ -5,8 +5,11 @@ Built for DFU 1.1.1. The mod is plain C# in `src/`; DFU compiles it when the gam
 ## Features
 - **Quick Loot** plate on a corpse's loot window (default key `L`): takes everything the loot filter allows, plus gold
   and quest items, then closes the window. If you can't carry it all, it stays open and says how much is left.
-- **Loot filter** (FILTER button / `F`): toggle the four inventory categories and the twelve materials, plus a
-  white list (name contains... always looted) and black list (never looted; the white list wins).
+- **Loot filter** (SETUP button / `F`, the mod's settings window): toggle the four inventory categories and the
+  twelve materials, plus a white list (name contains... always looted) and black list (never looted; the white list
+  wins). "Ignore materials for magic items" (on by default) takes enchanted weapons and armor whatever their material.
+- **STACK** (`K`, replaces JUNK while the cart is open): moves everything on the open inventory tab into the cart,
+  except locked items (and equipped, quest and cargo items). Splits stacks if the cart is nearly full.
 - **JUNK** button (`K`): click items to tag/untag them. Tags are case-insensitive regexes matched against the item
   name (default `^Iron Dagger$`), so they also catch future loot. Tagged items are greyed with a gold coin.
   Magic items, quest items and cargo can't be tagged.
@@ -44,6 +47,9 @@ Built for DFU 1.1.1. The mod is plain C# in `src/`; DFU compiles it when the gam
   "Gains/Loses magic powers". The condition shows after the name, as in "Daedric Tanto (85%)". The box is only as
   wide as its text, framed with DFU's compass border. (Only when DFU's "inventory info panel" option is on; otherwise
   DFU's own tooltips are used.)
+
+The settings window also has a UI STYLE selector. Only "classic" (the game's own art) exists so far; a "modern"
+table layout in the style of SkyUI is planned.
 
 Settings are saved to `JunkLootFilter.json` in DFU's data folder; item locks go into each save game.
 

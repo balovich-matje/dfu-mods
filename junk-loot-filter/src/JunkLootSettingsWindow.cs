@@ -181,6 +181,9 @@ namespace JunkLootFilter
             Button noCats = DaggerfallUI.AddTextButton(new Rect(52, 75, 40, 11), "NONE", content);
             noCats.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { p.SetAllCategories(false); JunkStore.Save(); Rebuild(); };
 
+            if (loot)
+                AddToggle(8, 92, "Ignore materials for magic items", JunkStore.S.lootMagicAnyMaterial, delegate (bool v) { JunkStore.S.lootMagicAnyMaterial = v; });
+
             Button allMats = DaggerfallUI.AddTextButton(new Rect(150, 98, 40, 11), "ALL", content);
             allMats.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { p.SetAllMaterials(true); JunkStore.Save(); Rebuild(); };
             Button noMats = DaggerfallUI.AddTextButton(new Rect(194, 98, 40, 11), "NONE", content);
@@ -326,12 +329,29 @@ namespace JunkLootFilter
             Label(content, 22, 104, "Empty corpses fade away in 5 seconds; after a quick loot that left items, in 10.", HintColor);
 
             Label(content, 8, 118, "WINDOW SIZE", EdgeColor);
-            Label(content, 8, 127, "Shrinks and centres the game's windows. 100% is the classic full-screen size.", HintColor);
+            Label(content, 8, 127, "Shrinks and centres the game's windows.", HintColor);
             Button smaller = DaggerfallUI.AddTextButton(new Rect(8, 137, 22, 12), "-", content);
             smaller.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { ChangeWindowScale(-0.05f); };
             Label(content, 40, 139, Mathf.RoundToInt(JunkStore.S.windowScale * 100f) + "%", DaggerfallUI.DaggerfallDefaultTextColor);
             Button bigger = DaggerfallUI.AddTextButton(new Rect(74, 137, 22, 12), "+", content);
             bigger.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { ChangeWindowScale(0.05f); };
+
+            Label(content, 150, 118, "UI STYLE", EdgeColor);
+            Label(content, 150, 127, "Modern (table layout) is planned.", HintColor);
+            Button classic = DaggerfallUI.AddTextButton(new Rect(150, 137, 52, 12), "CLASSIC", content);
+            classic.BackgroundColor = (JunkStore.S.uiStyle == 0) ? ActiveColor : ButtonColor;
+            classic.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { SetUiStyle(0); };
+            Button modern = DaggerfallUI.AddTextButton(new Rect(206, 137, 52, 12), "MODERN", content);
+            modern.BackgroundColor = (JunkStore.S.uiStyle == 1) ? ActiveColor : ButtonColor;
+            modern.Label.TextColor = HintColor;
+            modern.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { JunkUi.Hud("The modern style is not available yet."); };
+        }
+
+        void SetUiStyle(int style)
+        {
+            JunkStore.S.uiStyle = style;
+            JunkStore.Save();
+            Rebuild();
         }
 
         void ChangeWindowScale(float delta)

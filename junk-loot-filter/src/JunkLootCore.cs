@@ -254,6 +254,10 @@ namespace JunkLootFilter
         public bool skyrimCompass;
         // Interaction mode icon at the bottom left that fades out some seconds after the mode changes.
         public bool fadeModeIcon;
+        // Quick loot: magic weapons and armor are taken whatever the material toggles say.
+        public bool lootMagicAnyMaterial;
+        // 0 = classic (the game's own art); 1 = modern (table layout, planned).
+        public int uiStyle;
 
         // Views onto the fields above, built by JunkStore.Load().
         [NonSerialized] public FilterProfile loot;
@@ -271,7 +275,7 @@ namespace JunkLootFilter
 
         public static readonly string[] KeyActionNames =
         {
-            "Junk mode", "Lock mode", "Filter settings", "Quick loot", "Quick sell"
+            "Junk mode", "Lock mode", "Mod settings", "Quick loot", "Quick sell"
         };
 
         public static int[] DefaultKeys()
@@ -377,6 +381,13 @@ namespace JunkLootFilter
                 S.fadeModeIcon = true;
                 S.version = 3;
             }
+            if (S.version < 4)
+            {
+                S.lootMagicAnyMaterial = true;
+                S.version = 4;
+            }
+            if (S.uiStyle < 0 || S.uiStyle > 1)
+                S.uiStyle = 0;
 
             S.loot = new FilterProfile(S.lootCategories, S.lootMaterials, S.lootWhite, S.lootBlack);
             S.sell = new FilterProfile(S.sellCategories, S.sellMaterials, S.sellWhite, S.sellBlack);
@@ -570,7 +581,7 @@ namespace JunkLootFilter
                 return true;
             if (MatchAny(p.blacklist, name))
                 return false;
-            return PassesToggles(item, p);
+            return PassesToggles(item, p, JunkStore.S.lootMagicAnyMaterial);
         }
 
         // Quick sell: black list always wins here (never sell), and magic items obey only the Magic toggle.
@@ -590,13 +601,16 @@ namespace JunkLootFilter
                 return p.categories[1];
             if (MatchAny(p.whitelist, name))
                 return true;
-            return PassesToggles(item, p);
+            return PassesToggles(item, p, false);
         }
 
-        static bool PassesToggles(DaggerfallUnityItem item, FilterProfile p)
+        static bool PassesToggles(DaggerfallUnityItem item, FilterProfile p, bool magicAnyMaterial)
         {
-            if (!p.categories[Category(item)])
+            int category = Category(item);
+            if (!p.categories[category])
                 return false;
+            if (category == 1 && magicAnyMaterial)
+                return true;
             int m = Material(item);
             if (m >= 0 && !p.materials[m])
                 return false;

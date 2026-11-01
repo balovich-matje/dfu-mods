@@ -665,6 +665,7 @@ namespace JunkLootFilter
         Texture2D blankNotSelected;
         Texture2D blankSelected;
         bool layoutOk;
+        bool stackShown;
         int extraMode;
         bool changingModeInternally;
         readonly InfoTip tip = new InfoTip();
@@ -711,7 +712,7 @@ namespace JunkLootFilter
                 for (int x = 222; x <= 260; x++)
                     b.Set(x, RecessBottom, orig.Get(x, 143));
 
-                // Slot order: wagon, info, equip, JUNK, LOCK, remove, use, gold, FILTER.
+                // Slot order: wagon, info, equip, JUNK, LOCK, remove, use, gold, SETUP.
                 // >= 0: a stock slab; -1/-2/-3: blank slabs for junk, lock and filter.
                 int[] slotSource = { 0, 1, 2, -1, -2, 3, 4, 5, -3 };
                 Rect[] rects = new Rect[6];
@@ -765,17 +766,23 @@ namespace JunkLootFilter
             {
                 junkButton = JunkUi.SlabButton(NativePanel, junkButtonRect, blankNotSelected, "JUNK");
                 lockButton = JunkUi.SlabButton(NativePanel, lockButtonRect, blankNotSelected, "LOCK");
-                filterButton = JunkUi.SlabButton(NativePanel, filterButtonRect, blankNotSelected, "FILTER");
+                filterButton = JunkUi.SlabButton(NativePanel, filterButtonRect, blankNotSelected, "SETUP");
             }
             else
             {
                 // Fallback when the stock art is replaced by a texture pack: plates along the backpack icon.
                 junkButton = JunkUi.MakePlate(localTargetIconPanel, new Rect(1, 23, 17, 10), "JUNK");
                 lockButton = JunkUi.MakePlate(localTargetIconPanel, new Rect(19, 23, 17, 10), "LOCK");
-                filterButton = JunkUi.MakePlate(localTargetIconPanel, new Rect(37, 23, 17, 10), "FILTER");
+                filterButton = JunkUi.MakePlate(localTargetIconPanel, new Rect(37, 23, 17, 10), "SETUP");
             }
 
-            junkButton.OnMouseClick += delegate (BaseScreenComponent sender, Vector2 position) { ToggleExtraMode(ModeJunk); };
+            junkButton.OnMouseClick += delegate (BaseScreenComponent sender, Vector2 position)
+            {
+                if (usingWagon)
+                    DoQuickStack();
+                else
+                    ToggleExtraMode(ModeJunk);
+            };
             junkButton.OnRightMouseClick += OpenSettings_OnClick;
             lockButton.OnMouseClick += delegate (BaseScreenComponent sender, Vector2 position) { ToggleExtraMode(ModeLock); };
             lockButton.OnRightMouseClick += OpenSettings_OnClick;
@@ -839,10 +846,30 @@ namespace JunkLootFilter
 
         void ApplyHotkeys()
         {
-            JunkUi.BindKey(junkButton, JunkStore.KeyJunk, "Junk mode: click items to tag them as always-sell. Right-click: settings.", defaultToolTip);
-            JunkUi.BindKey(lockButton, JunkStore.KeyLock, "Lock mode: click items to lock them so they are never sold. Right-click: settings.", defaultToolTip);
-            JunkUi.BindKey(filterButton, JunkStore.KeyFilter, "Loot filter, sell filter, junk list and key settings.", defaultToolTip);
+            stackShown = !usingWagon;
+            UpdateJunkSlot();
+            JunkUi.BindKey(lockButton, JunkStore.KeyLock, "Lock mode: click items to lock them so they are never sold or stacked. Right-click: settings.", defaultToolTip);
+            JunkUi.BindKey(filterButton, JunkStore.KeyFilter, "Mod settings: loot and sell filters, junk list, keys, HUD and window options.", defaultToolTip);
             JunkUi.BindKey(lootPlate, JunkStore.KeyLoot, "Loot everything the loot filter allows, then close. Right-click: settings.", defaultToolTip);
+        }
+
+        // While the cart is open the JUNK slab becomes STACK (same key): junk tagging is for selling, and the
+        // lock button stays so items can be locked first.
+        void UpdateJunkSlot()
+        {
+            if (junkButton == null || stackShown == usingWagon)
+                return;
+            stackShown = usingWagon;
+            if (stackShown && extraMode == ModeJunk)
+            {
+                extraMode = ModeNone;
+                SelectActionMode(lootTarget != null ? ActionModes.Remove : ActionModes.Equip);
+            }
+            junkButton.Label.Text = stackShown ? "STACK" : "JUNK";
+            JunkUi.BindKey(junkButton, JunkStore.KeyJunk,
+                stackShown ? "Quick stack: move every unlocked item on this tab into the cart. Right-click: settings."
+                           : "Junk mode: click items to tag them as always-sell. Right-click: settings.", defaultToolTip);
+            UpdateModeButtons();
         }
 
         Texture2D[] ForegroundHandler(DaggerfallUnityItem item)
@@ -870,6 +897,7 @@ namespace JunkLootFilter
         public override void Update()
         {
             base.Update();
+            UpdateJunkSlot();
             if (lootPlate != null)
                 lootPlate.Enabled = CanQuickLoot();
             if (itemInfoPanel != null)
@@ -1057,6 +1085,96 @@ namespace JunkLootFilter
                 JunkUi.Hud("Looted " + taken + " item(s).");
             }
             CloseWindow();
+        }
+
+        #endregion
+
+        #region Quick stack
+
+        // Moves everything on the open tab that isn't locked from the backpack into the cart.
+        void DoQuickStack()
+        {
+            if (!usingWagon || remoteItems == null || remoteTargetType != RemoteTargetTypes.Wagon)
+                return;
+
+            List<DaggerfallUnityItem> snapshot = new List<DaggerfallUnityItem>(localItemsFiltered);
+            int moved = 0;
+            int kept = 0;
+            int noRoom = 0;
+
+            for (int i = 0; i < snapshot.Count; i++)
+            {
+                DaggerfallUnityItem item = snapshot[i];
+                if (item == null || item.IsEquipped)
+                    continue;
+
+                if (JunkStore.IsLocked(item))
+                {
+                    kept++;
+                    continue;
+                }
+
+                // Same things the stock transfer refuses or handles specially.
+                if (item.IsQuestItem || item.IsSummoned || item.ItemGroup == ItemGroups.Transportation
+                    || item.IsOfTemplate(ItemGroups.MiscItems, (int)MiscItems.Map))
+                {
+                    kept++;
+                    continue;
+                }
+
+                int can = WagonRoomFor(item);
+                if (can <= 0)
+                {
+                    noRoom++;
+                    continue;
+                }
+
+                DaggerfallUnityItem toMove = item;
+                if (can < item.stackCount && item.IsAStack())
+                {
+                    toMove = localItems.SplitStack(item, can);
+                    if (toMove == null)
+                    {
+                        noRoom++;
+                        continue;
+                    }
+                    noRoom++;
+                }
+                else if (can < item.stackCount)
+                {
+                    noRoom++;
+                    continue;
+                }
+
+                if (toMove.IsLightSource && PlayerEntity.LightSource == toMove)
+                    PlayerEntity.LightSource = null;
+                remoteItems.Transfer(toMove, localItems);
+                moved++;
+            }
+
+            Refresh(false);
+            localItemListScroller.Items = localItemsFiltered;
+            remoteItemListScroller.Items = remoteItemsFiltered;
+            if (moved > 0)
+                DaggerfallUI.Instance.PlayOneShot(SoundClips.ButtonClick);
+
+            string msg = "Stacked " + moved + " item(s) into the cart";
+            if (kept > 0)
+                msg += ", kept " + kept + " locked";
+            if (noRoom > 0)
+                msg += ", cart full for " + noRoom;
+            JunkUi.Hud(msg + ".");
+        }
+
+        int WagonRoomFor(DaggerfallUnityItem item)
+        {
+            float unit = item.EffectiveUnitWeightInKg();
+            int unitGp = Mathf.RoundToInt(unit * 400f);
+            if (unitGp <= 0)
+                return item.stackCount;
+            int capacityGp = Mathf.RoundToInt(ItemHelper.WagonKgLimit * 400f);
+            int loadGp = Mathf.RoundToInt(remoteItems.GetWeight() * 400f);
+            return Math.Min(item.stackCount, (capacityGp - loadGp) / unitGp);
         }
 
         #endregion
