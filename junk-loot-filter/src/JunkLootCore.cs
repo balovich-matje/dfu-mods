@@ -73,7 +73,7 @@ namespace JunkLootFilter
 
         void Start()
         {
-            UIWindowFactory.RegisterCustomUIWindow(UIWindowType.Inventory, typeof(JunkInventoryWindow));
+            UIWindowFactory.RegisterCustomUIWindow(UIWindowType.Inventory, typeof(ModernInventoryWindow));
             UIWindowFactory.RegisterCustomUIWindow(UIWindowType.Trade, typeof(JunkTradeWindow));
             Debug.Log("[JunkLoot] Windows registered.");
         }
@@ -93,7 +93,7 @@ namespace JunkLootFilter
             "DaggerfallStartWindow", "DaggerfallUnitySetupGameWizard", "DaggerfallStartNewGameWizard",
             "DaggerfallVidPlayerWindow", "DemoFLCWindow", "DemoClassQuestionsWindow", "DaggerfallLoadClassicGameWindow",
             "DaggerfallAutomapWindow", "DaggerfallExteriorAutomapWindow", "DaggerfallTravelMapWindow",
-            "DaggerfallBookReaderWindow", "DaggerfallCourtWindow", "DaggerfallDaedraSummonedWindow"
+            "DaggerfallBookReaderWindow", "DaggerfallCourtWindow", "DaggerfallDaedraSummonedWindow", "ModernInventoryWindow"
         };
 
         // Small dialogs shrink only half as much, or their text becomes too small to read comfortably.
@@ -193,7 +193,7 @@ namespace JunkLootFilter
     // just point at them.
     public class FilterProfile
     {
-        // 0 Weapons & Armor, 1 Magic items, 2 Clothing & Misc, 3 Ingredients
+        // 0 Weapons, 1 Armor, 2 Clothes, 3 Ingredients, 4 Misc, 5 Magic items (any enchanted item, whatever its type)
         public bool[] categories;
         // Indexes into ItemRules.MaterialNames
         public bool[] materials;
@@ -256,7 +256,7 @@ namespace JunkLootFilter
         public bool fadeModeIcon;
         // Quick loot: magic weapons and armor are taken whatever the material toggles say.
         public bool lootMagicAnyMaterial;
-        // 0 = classic (the game's own art); 1 = modern (table layout, planned).
+        // Modern inventory: 0 = separate frames, 1 = one shared container.
         public int uiStyle;
 
         // Views onto the fields above, built by JunkStore.Load().
@@ -271,16 +271,17 @@ namespace JunkLootFilter
         public const int KeyFilter = 2;
         public const int KeyLoot = 3;
         public const int KeySell = 4;
-        public const int KeyCount = 5;
+        public const int KeyStack = 5;
+        public const int KeyCount = 6;
 
         public static readonly string[] KeyActionNames =
         {
-            "Junk mode", "Lock mode", "Mod settings", "Quick loot", "Quick sell"
+            "Junk mode / tag item", "Lock mode / lock item", "Mod settings", "Quick loot", "Quick sell", "Quick stack"
         };
 
         public static int[] DefaultKeys()
         {
-            return new int[] { (int)KeyCode.K, (int)KeyCode.O, (int)KeyCode.F, (int)KeyCode.L, (int)KeyCode.Q };
+            return new int[] { (int)KeyCode.K, (int)KeyCode.O, (int)KeyCode.F, (int)KeyCode.L, (int)KeyCode.Q, (int)KeyCode.T };
         }
 
         public static JunkSettings S;
@@ -346,12 +347,16 @@ namespace JunkLootFilter
                 S = new JunkSettings();
 
             // Fill anything missing or of the wrong size (first run, or a file from an older version).
-            if (S.lootCategories == null || S.lootCategories.Length != 4)
-                S.lootCategories = Filled(4, true);
+            if (S.lootCategories != null && S.lootCategories.Length == 4)
+                S.lootCategories = UpgradeCategories(S.lootCategories);
+            if (S.lootCategories == null || S.lootCategories.Length != ItemRules.CategoryCount)
+                S.lootCategories = Filled(ItemRules.CategoryCount, true);
             if (S.lootMaterials == null || S.lootMaterials.Length != 12)
                 S.lootMaterials = Filled(12, true);
-            if (S.sellCategories == null || S.sellCategories.Length != 4)
-                S.sellCategories = Filled(4, false);
+            if (S.sellCategories != null && S.sellCategories.Length == 4)
+                S.sellCategories = UpgradeCategories(S.sellCategories);
+            if (S.sellCategories == null || S.sellCategories.Length != ItemRules.CategoryCount)
+                S.sellCategories = Filled(ItemRules.CategoryCount, false);
             if (S.sellMaterials == null || S.sellMaterials.Length != 12)
                 S.sellMaterials = Filled(12, true);
             if (S.lootWhite == null)
@@ -364,6 +369,15 @@ namespace JunkLootFilter
                 S.sellBlack = new List<string>();
             if (S.junk == null)
                 S.junk = new List<string>();
+            if (S.keys != null && S.keys.Length == KeyCount - 1)
+            {
+                // A file from before Quick stack had a key: keep the old bindings and add the default for the new one.
+                int[] defaults = DefaultKeys();
+                int[] extended = new int[KeyCount];
+                for (int i = 0; i < KeyCount; i++)
+                    extended[i] = (i < S.keys.Length) ? S.keys[i] : defaults[i];
+                S.keys = extended;
+            }
             if (S.keys == null || S.keys.Length != KeyCount)
                 S.keys = DefaultKeys();
             if (S.windowScale < 0.4f || S.windowScale > 1f)
@@ -392,6 +406,12 @@ namespace JunkLootFilter
             S.loot = new FilterProfile(S.lootCategories, S.lootMaterials, S.lootWhite, S.lootBlack);
             S.sell = new FilterProfile(S.sellCategories, S.sellMaterials, S.sellWhite, S.sellBlack);
             junkRegex = null;
+        }
+
+        // Old files have four categories: Weapons and armor, Magic items, Clothing and misc, Ingredients.
+        static bool[] UpgradeCategories(bool[] old)
+        {
+            return new bool[] { old[0], old[0], old[2], old[3], old[2], old[1] };
         }
 
         static bool[] Filled(int length, bool value)
@@ -491,9 +511,19 @@ namespace JunkLootFilter
 
     public static class ItemRules
     {
+        public const int CategoryCount = 6;
+        public const int TabCount = 5;
+        public const int CatMagic = 5;
+
+        // The first five are the inventory tabs, the last is a loot/sell filter toggle.
         public static readonly string[] CategoryNames =
         {
-            "Weapons & Armor", "Magic items", "Clothing & Misc", "Ingredients"
+            "Weapons", "Armor", "Clothes", "Ingredients", "Misc", "Magic items (any type)"
+        };
+
+        public static readonly string[] TabNames =
+        {
+            "Weapons", "Armor", "Clothes", "Ingredients", "Misc"
         };
 
         public static readonly string[] MaterialNames =
@@ -502,17 +532,29 @@ namespace JunkLootFilter
             "Dwarven", "Mithril", "Adamantium", "Ebony", "Orcish", "Daedric"
         };
 
-        // Same split as the four inventory tabs.
-        public static int Category(DaggerfallUnityItem item)
+        public static bool IsMagic(DaggerfallUnityItem item)
         {
-            bool weaponOrArmor = (item.ItemGroup == ItemGroups.Weapons || item.ItemGroup == ItemGroups.Armor);
-            if (item.IsEnchanted || item.IsOfTemplate((int)MiscItems.Spellbook))
-                return 1;
-            if (weaponOrArmor)
-                return 0;
+            return item.IsEnchanted;
+        }
+
+        // Inventory tab: 0 Weapons, 1 Armor, 2 Clothes (jewelry too), 3 Ingredients, 4 Misc. Magic items sit in
+        // the tab of their type.
+        public static int Tab(DaggerfallUnityItem item)
+        {
+            switch (item.ItemGroup)
+            {
+                case ItemGroups.Weapons:
+                    return 0;
+                case ItemGroups.Armor:
+                    return 1;
+                case ItemGroups.MensClothing:
+                case ItemGroups.WomensClothing:
+                case ItemGroups.Jewellery:
+                    return 2;
+            }
             if (item.IsIngredient)
                 return 3;
-            return 2;
+            return 4;
         }
 
         // Index into MaterialNames, or -1 when the item has no material (anything but weapons and armor).
@@ -597,8 +639,8 @@ namespace JunkLootFilter
             string name = item.LongName ?? string.Empty;
             if (MatchAny(p.blacklist, name))
                 return false;
-            if (Category(item) == 1)
-                return p.categories[1];
+            if (IsMagic(item))
+                return p.categories[CatMagic];
             if (MatchAny(p.whitelist, name))
                 return true;
             return PassesToggles(item, p, false);
@@ -606,11 +648,18 @@ namespace JunkLootFilter
 
         static bool PassesToggles(DaggerfallUnityItem item, FilterProfile p, bool magicAnyMaterial)
         {
-            int category = Category(item);
-            if (!p.categories[category])
+            if (IsMagic(item))
+            {
+                // Magic items follow only their own toggle, and the materials unless told to ignore them.
+                if (!p.categories[CatMagic])
+                    return false;
+                if (magicAnyMaterial)
+                    return true;
+            }
+            else if (!p.categories[Tab(item)])
+            {
                 return false;
-            if (category == 1 && magicAnyMaterial)
-                return true;
+            }
             int m = Material(item);
             if (m >= 0 && !p.materials[m])
                 return false;

@@ -18,7 +18,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "src")
 MOD_NAME = "JunkLootFilter"
 MOD_TITLE = "Junk and Loot Filter"
-SOURCES = ["JunkLootCore.cs", "JunkLootWindows.cs", "JunkLootSettingsWindow.cs", "JunkLootWorld.cs"]
+# The donor has room for four source files, so files listed together are merged into the first one's slot.
+SOURCE_GROUPS = [
+    ["JunkLootCore.cs"],
+    ["JunkLootWindows.cs", "JunkLootModern.cs"],
+    ["JunkLootSettingsWindow.cs"],
+    ["JunkLootWorld.cs"],
+]
+SOURCES = [g[0] for g in SOURCE_GROUPS]
 
 MANIFEST = {
     "ModTitle": MOD_TITLE,
@@ -32,6 +39,31 @@ MANIFEST = {
     ] + ["Assets/Game/Mods/%s/Scripts/%s" % (MOD_NAME, s) for s in SOURCES],
     "Dependencies": [],
 }
+
+
+def read_group(group):
+    """Source text for one slot. Several files are merged: usings hoisted to the top, namespace bodies joined."""
+    if len(group) == 1:
+        with open(os.path.join(SRC, group[0]), "r", encoding="utf-8") as fh:
+            return fh.read()
+    usings = []
+    bodies = []
+    header = ""
+    for i, name in enumerate(group):
+        with open(os.path.join(SRC, name), "r", encoding="utf-8") as fh:
+            lines = fh.read().split("\n")
+        start = next(n for n, l in enumerate(lines) if l.startswith("namespace "))
+        if i == 0:
+            header = "\n".join(l for l in lines[:start] if l.startswith("//")) + "\n"
+        for l in lines[:start]:
+            if l.startswith("using ") and l not in usings:
+                usings.append(l)
+        body = lines[start + 2:]  # skip "namespace X" and "{"
+        while body and body[-1].strip() == "":
+            body.pop()
+        assert body[-1].strip() == "}", name
+        bodies.append("\n".join(body[:-1]))
+    return header + "\n" + "\n".join(usings) + "\n\nnamespace JunkLootFilter\n{\n" + "\n".join(bodies) + "\n}\n"
 
 
 def main():
@@ -57,9 +89,9 @@ def main():
 
     container = []  # (key, path_id)
 
-    for slot, src in zip(donor_slots, SOURCES):
-        with open(os.path.join(SRC, src), "r", encoding="utf-8") as fh:
-            text = fh.read()
+    for slot, group in zip(donor_slots, SOURCE_GROUPS):
+        src = group[0]
+        text = read_group(group)
         tree = slot.read_typetree()
         tree["m_Name"] = src
         tree["m_Script"] = text

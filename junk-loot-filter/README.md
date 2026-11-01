@@ -3,21 +3,37 @@
 Built for DFU 1.1.1. The mod is plain C# in `src/`; DFU compiles it when the game starts.
 
 ## Features
-- **Quick Loot** plate on a corpse's loot window (default key `L`): takes everything the loot filter allows, plus gold
-  and quest items, then closes the window. If you can't carry it all, it stays open and says how much is left.
-- **Loot filter** (SETUP button / `F`, the mod's settings window): toggle the four inventory categories and the
-  twelve materials, plus a white list (name contains... always looted) and black list (never looted; the white list
-  wins). "Ignore materials for magic items" (on by default) takes enchanted weapons and armor whatever their material.
-- **STACK** (`K`, replaces JUNK while the cart is open): moves everything on the open inventory tab into the cart,
+- **Modern inventory** (replaces DFU's classic inventory window): a big table window in the style of SkyUI. Top row:
+  the twelve trinket slots (amulets, bracelets, rings, bracers, marks, crystals) and five category tabs - Weapons,
+  Armor, Clothes (jewelry too), Ingredients, Misc - with item counts; magic items sit in the tab of their type, shown
+  in blue. Middle: equipped gear, the paper doll, and a table of the open tab with icon, type, name, weight, price and
+  gold per kg (click a header to sort; the mouse wheel scrolls). Bottom bar: Wagon, Gold, Setup, Exit.
+  - Left click equips or uses an item, `Shift`+click moves it to the side panel (or drops it), middle click cycles
+    variants. Left click on an equipped item takes it off.
+  - **Right click** opens a menu: Equip/Use, Info, Move to cart/Drop, Lock, Tag as junk (and Unequip for worn gear).
+  - Number keys `1`-`5` pick the tab. `K` tags and `O` locks the item under the mouse, `T` quick stacks, `L` quick
+    loots, `F` opens the settings (all rebindable).
+  - **Side panel** to the right of the centred window while the cart, a corpse/chest or the ground has items:
+    a table of that container, its weight, and its own button: **Quick stack**, **Quick loot** or nothing.
+  - Two looks, chosen in the settings (MISC tab, "Inventory frames"): separate frames, or one shared container.
+- **Quick Loot** button on a corpse's or chest's side panel (default key `L`): takes everything the loot filter
+  allows, plus gold and quest items, then closes the window. If you can't carry it all, it stays open and says how
+  much is left.
+- **Quick stack** button while the cart is open (default key `T`): moves everything on the open tab into the cart,
   except locked items (and equipped, quest and cargo items). Splits stacks if the cart is nearly full.
-- **JUNK** button (`K`): click items to tag/untag them. Tags are case-insensitive regexes matched against the item
-  name (default `^Iron Dagger$`), so they also catch future loot. Tagged items are greyed with a gold coin.
-  Magic items, quest items and cargo can't be tagged.
-- **LOCK** button (`O`): click items to lock/unlock them. Locked items get a blue frame and a padlock and are never
-  sold, not by Quick Sell, not by the junk pre-selection, not by hand. Locks are saved with each game.
-- **Q.SELL** (`Q`), **JUNK**, **LOCK** in a vendor's sell window: Quick Sell moves everything the sell filter and
-  the junk list allow into the basket and opens the normal price/confirm dialog. Only items the shop buys are
-  considered. Junk is also added to the basket automatically when the window opens (toggle in the JUNK tab).
+- **Loot filter** (Setup button / `F`, the mod's settings window): toggle the five categories and the twelve
+  materials, plus "Magic items (any type)", a white list (name contains... always looted) and a black list (never
+  looted; the white list wins). "Ignore materials for magic items" (on by default) takes enchanted weapons and armor
+  whatever their material.
+- **Junk tags**: tag an item (menu or `K`) and it is matched by name (a case-insensitive regex, default
+  `^Iron Dagger$`), so it also catches future loot. Tagged items are greyed with a gold coin. Magic items, quest
+  items and cargo can't be tagged.
+- **Locks** (menu or `O`): locked items get a blue frame and a padlock and are never sold, quick stacked or
+  pre-selected for sale. Locks are saved with each game.
+- **Vendor windows** (still DFU's classic layout for now): **Q.SELL** (`Q`), **JUNK** and **LOCK** buttons. Quick
+  Sell moves everything the sell filter and the junk list allow into the basket and opens the normal price/confirm
+  dialog. Only items the shop buys are considered. Junk is also added to the basket automatically when the window
+  opens (toggle in the JUNK tab).
 - **Skyrim-style vitals bars**: magicka (left), health (centre, red) and stamina (right, green), all the same size,
   along the bottom of the screen with `current / max` inside each bar and DFU's own compass border as the frame.
   DFU's own bars are moved off screen.
@@ -35,21 +51,16 @@ Built for DFU 1.1.1. The mod is plain C# in `src/`; DFU compiles it when the gam
 - **KEYS** tab in the settings window: rebind all of the above (click a row, or Up/Down + Enter, then press a key;
   Escape cancels, Backspace unbinds).
 - **MISC** tab: switch each of the HUD features and the corpse clean up on or off, and set the window size.
-- **Window size** (default 70%): DFU's windows (inventory, talk, shops, character sheet...) open smaller and centred
-  instead of filling the screen. Small dialogs shrink half as much so they stay readable. The main menu, character
+- **Window size** (default 70%): DFU's other windows (talk, shops, character sheet...) open smaller and centred
+  instead of filling the screen. The modern inventory ignores this and uses about 86% of the screen height. Small dialogs shrink half as much so they stay readable. The main menu, character
   creation, maps, books and videos stay full size.
 - Sell rules: the black list always wins, magic items follow only the Magic toggle.
-- The item info panel follows the cursor instead of sitting in the button column, which frees the room the extra
-  buttons use, and DFU's own name tooltip is hidden so you don't get two. It also shows what DFU only reveals after a
+- The item hover box follows the cursor, in the inventory and in shops. It shows what DFU only reveals after a
   second click on INFO: an item's magic powers, or a potion recipe's ingredients. For gear that goes in a slot you
   have filled it adds a "vs <equipped item>" block (a one-handed weapon is compared with the weapon in your other
   hand when its own slot is empty): damage, armor and weight deltas in green (better) or red (worse), and
   "Gains/Loses magic powers". The condition shows after the name, as in "Daedric Tanto (85%)". The box is only as
-  wide as its text, framed with DFU's compass border. (Only when DFU's "inventory info panel" option is on; otherwise
-  DFU's own tooltips are used.)
-
-The settings window also has a UI STYLE selector. Only "classic" (the game's own art) exists so far; a "modern"
-table layout in the style of SkyUI is planned.
+  wide as its text, framed with DFU's compass border. (In shop windows it needs DFU's "inventory info panel" option.)
 
 Settings are saved to `JunkLootFilter.json` in DFU's data folder; item locks go into each save game.
 

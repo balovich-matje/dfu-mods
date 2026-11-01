@@ -161,11 +161,13 @@ namespace JunkLootFilter
             Label(content, 8, 2, loot ? "QUICK LOOT TAKES:" : "QUICK SELL SELLS:", EdgeColor);
 
             Label(content, 8, 14, "CATEGORIES", HintColor);
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < ItemRules.CategoryCount; i++)
             {
                 int index = i;
                 AddToggle(8, 25 + i * 12, ItemRules.CategoryNames[i], p.categories[i], delegate (bool v) { p.categories[index] = v; });
             }
+            if (loot)
+                AddToggle(8, 25 + ItemRules.CategoryCount * 12, "Ignore materials for magic items", JunkStore.S.lootMagicAnyMaterial, delegate (bool v) { JunkStore.S.lootMagicAnyMaterial = v; });
 
             Label(content, 150, 14, "MATERIALS", HintColor);
             for (int m = 0; m < 12; m++)
@@ -176,27 +178,24 @@ namespace JunkLootFilter
                 AddToggle(150 + col * 74, 25 + row * 12, ItemRules.MaterialNames[m], p.materials[m], delegate (bool v) { p.materials[index] = v; });
             }
 
-            Button allCats = DaggerfallUI.AddTextButton(new Rect(8, 75, 40, 11), "ALL", content);
+            Button allCats = DaggerfallUI.AddTextButton(new Rect(8, 109, 40, 11), "ALL", content);
             allCats.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { p.SetAllCategories(true); JunkStore.Save(); Rebuild(); };
-            Button noCats = DaggerfallUI.AddTextButton(new Rect(52, 75, 40, 11), "NONE", content);
+            Button noCats = DaggerfallUI.AddTextButton(new Rect(52, 109, 40, 11), "NONE", content);
             noCats.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { p.SetAllCategories(false); JunkStore.Save(); Rebuild(); };
-
-            if (loot)
-                AddToggle(8, 92, "Ignore materials for magic items", JunkStore.S.lootMagicAnyMaterial, delegate (bool v) { JunkStore.S.lootMagicAnyMaterial = v; });
 
             Button allMats = DaggerfallUI.AddTextButton(new Rect(150, 98, 40, 11), "ALL", content);
             allMats.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { p.SetAllMaterials(true); JunkStore.Save(); Rebuild(); };
             Button noMats = DaggerfallUI.AddTextButton(new Rect(194, 98, 40, 11), "NONE", content);
             noMats.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { p.SetAllMaterials(false); JunkStore.Save(); Rebuild(); };
 
-            Button white = DaggerfallUI.AddTextButton(new Rect(8, 116, 136, 12), "WHITE LIST (" + p.whitelist.Count + ")", content);
+            Button white = DaggerfallUI.AddTextButton(new Rect(8, 124, 136, 12), "WHITE LIST (" + p.whitelist.Count + ")", content);
             white.Hotkey = JunkUi.Key(KeyCode.W);
             white.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { page = PageWhiteList; scroll = 0; selected = -1; Rebuild(); };
-            Button black = DaggerfallUI.AddTextButton(new Rect(150, 116, 136, 12), "BLACK LIST (" + p.blacklist.Count + ")", content);
+            Button black = DaggerfallUI.AddTextButton(new Rect(150, 124, 136, 12), "BLACK LIST (" + p.blacklist.Count + ")", content);
             black.Hotkey = JunkUi.Key(KeyCode.B);
             black.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { page = PageBlackList; scroll = 0; selected = -1; Rebuild(); };
 
-            Label(content, 8, 133, loot ? "Weapons and armor also need their material ticked. Gold and quest items are always taken."
+            Label(content, 8, 139, loot ? "Weapons and armor also need their material ticked. Gold and quest items are always taken."
                                         : "Magic items follow only the Magic toggle. Junk-tagged items are always included.", HintColor);
         }
 
@@ -329,22 +328,21 @@ namespace JunkLootFilter
             Label(content, 22, 104, "Empty corpses fade away in 5 seconds; after a quick loot that left items, in 10.", HintColor);
 
             Label(content, 8, 118, "WINDOW SIZE", EdgeColor);
-            Label(content, 8, 127, "Shrinks and centres the game's windows.", HintColor);
+            Label(content, 8, 127, "Size of the game's other windows.", HintColor);
             Button smaller = DaggerfallUI.AddTextButton(new Rect(8, 137, 22, 12), "-", content);
             smaller.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { ChangeWindowScale(-0.05f); };
             Label(content, 40, 139, Mathf.RoundToInt(JunkStore.S.windowScale * 100f) + "%", DaggerfallUI.DaggerfallDefaultTextColor);
             Button bigger = DaggerfallUI.AddTextButton(new Rect(74, 137, 22, 12), "+", content);
             bigger.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { ChangeWindowScale(0.05f); };
 
-            Label(content, 150, 118, "UI STYLE", EdgeColor);
-            Label(content, 150, 127, "Modern (table layout) is planned.", HintColor);
-            Button classic = DaggerfallUI.AddTextButton(new Rect(150, 137, 52, 12), "CLASSIC", content);
-            classic.BackgroundColor = (JunkStore.S.uiStyle == 0) ? ActiveColor : ButtonColor;
-            classic.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { SetUiStyle(0); };
-            Button modern = DaggerfallUI.AddTextButton(new Rect(206, 137, 52, 12), "MODERN", content);
-            modern.BackgroundColor = (JunkStore.S.uiStyle == 1) ? ActiveColor : ButtonColor;
-            modern.Label.TextColor = HintColor;
-            modern.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { JunkUi.Hud("The modern style is not available yet."); };
+            Label(content, 150, 118, "INVENTORY FRAMES", EdgeColor);
+            Label(content, 150, 127, "Separate frames, or one shared container.", HintColor);
+            Button separate = DaggerfallUI.AddTextButton(new Rect(150, 137, 62, 12), "SEPARATE", content);
+            separate.BackgroundColor = (JunkStore.S.uiStyle == 0) ? ActiveColor : ButtonColor;
+            separate.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { SetUiStyle(0); };
+            Button shared = DaggerfallUI.AddTextButton(new Rect(216, 137, 62, 12), "SHARED", content);
+            shared.BackgroundColor = (JunkStore.S.uiStyle == 1) ? ActiveColor : ButtonColor;
+            shared.OnMouseClick += delegate (BaseScreenComponent s, Vector2 pos) { SetUiStyle(1); };
         }
 
         void SetUiStyle(int style)
