@@ -21,12 +21,13 @@ MOD_TITLE = "Idle Adventurer"
 # Any script-only DFU mod works as the donor; files listed together are merged into one of its text-asset slots.
 SOURCE_GROUPS = [
     ["IdleCore.cs"],
+    ["IdleSim.cs"],
 ]
 SOURCES = [g[0] for g in SOURCE_GROUPS]
 
 MANIFEST = {
     "ModTitle": MOD_TITLE,
-    "ModVersion": "0.1.0",
+    "ModVersion": "0.2.0",
     "ModAuthor": "balovich-matje",
     "DFUnity_Version": "1.0.0",
     "ModDescription": "An idle side game mode: your hero explores and fights alone, you manage gear and supplies.",
@@ -60,7 +61,7 @@ def read_group(group):
             body.pop()
         assert body[-1].strip() == "}", name
         bodies.append("\n".join(body[:-1]))
-    return header + "\n" + "\n".join(usings) + "\n\nnamespace JunkLootFilter\n{\n" + "\n".join(bodies) + "\n}\n"
+    return header + "\n" + "\n".join(usings) + "\n\nnamespace %s\n{\n" % MOD_NAME + "\n".join(bodies) + "\n}\n"
 
 
 def main():
