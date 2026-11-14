@@ -28,8 +28,14 @@ Status: M0 (spike) and M1 (simulation core, balance pass) are done. Decisions al
   longest route is under 80 m are skipped. The camera's place on the route comes from the time walked on the floor
   (3 m/s, back and forth), so a view can be opened at any moment. Fights stand the enemy 2.3 m ahead at the game's
   own sprite size; hits, misses and damage come from simulation events. Speed 1x/4x/16x, a "call home" order, and
-  mouse buttons in the hub and the view (keys still work). Still to do for M2: hero screen with equipping (needs a
-  stash, since unequipped loot is sold on return today), enemy death and hurt frames, sounds, a fade between floors.
+  mouse buttons in the hub and the view (keys still work). Still to do for M2: enemy death and hurt frames, sounds,
+  a fade between floors.
+- **Hero screen (`src/IdleHero.cs`, key C in the hub):** attributes, combat skills, the nine worn slots, and a stash
+  of 24 spare weapons and armor pieces. Usable weapons and armor the hero brings back (and anything auto-equip
+  replaces) go to the stash instead of being sold; when it is full the cheapest piece is sold. Equip, take off and
+  sell work by keys (arrows, Enter, X) and by mouse, at any time, also while the hero is away. Auto-equip only looks
+  at new loot, so a manual choice stays until something better is found; it can be switched off (A). Bows are shown
+  as unusable. The balance test gives about the same numbers as before (200 runs: level 22, floor 33).
 - **M1 as built:** orc stronghold only, generic warrior hero, melee only. Orders so far: target floor, retreat
   below 35% health after a fight, flee below 25% during one, auto-repeat, go one floor deeper after a clear.
 - **M1 balance (test with T in the hub, 40 heroes):** first run on floor 1: 60% clear, 35% retreat, 5% die. First

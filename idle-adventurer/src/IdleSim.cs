@@ -61,6 +61,9 @@ namespace IdleAdventurer
         public const int DeathWearPercent = 10;
         public const int OfflineCapSeconds = 12 * 3600;
         public const int SaleDivisor = 4;               // loot sells for a quarter of its listed value
+        public const int StashSize = 24;                // spare weapons and armor kept in town
+
+        public static readonly string[] SlotNames = { "Head", "Right arm", "Left arm", "Chest", "Hands", "Legs", "Feet", "Shield", "Weapon" };
 
         public static int RoomsOnFloor(int floor)
         {
@@ -94,6 +97,7 @@ namespace IdleAdventurer
         // Items are stored the way DFU stores them, as serialised ItemData_v1 arrays.
         public string gearBlob;
         public string haulBlob;
+        public string stashBlob;
 
         public int rng = 1;
         public long clock;                  // ticks since the hero was created
@@ -176,6 +180,7 @@ namespace IdleAdventurer
         public IdleSave s;
         public DaggerfallUnityItem[] gear = new DaggerfallUnityItem[IdleData.SlotCount];
         public List<DaggerfallUnityItem> haul = new List<DaggerfallUnityItem>();
+        public List<DaggerfallUnityItem> stash = new List<DaggerfallUnityItem>();
         public List<IdleEvent> events = new List<IdleEvent>();
         public bool record;
         public long eventTotal;             // events ever emitted, so a viewer can tell which ones are new
@@ -329,6 +334,7 @@ namespace IdleAdventurer
                     worn.Add(w.gear[i]);
             w.s.gearBlob = Pack(worn);
             w.s.haulBlob = Pack(w.haul);
+            w.s.stashBlob = Pack(w.stash);
         }
 
         public static IdleWorld FromSave(IdleSave s)
@@ -339,6 +345,7 @@ namespace IdleAdventurer
             for (int i = 0; i < worn.Count; i++)
                 Equip(w, worn[i]);
             w.haul = Unpack(s.haulBlob);
+            w.stash = Unpack(s.stashBlob);
             return w;
         }
 
@@ -405,12 +412,12 @@ namespace IdleAdventurer
             return "In town";
         }
 
-        static bool Works(DaggerfallUnityItem item)
+        public static bool Works(DaggerfallUnityItem item)
         {
             return item != null && item.currentCondition > 0;
         }
 
-        static bool IsBow(DaggerfallUnityItem item)
+        public static bool IsBow(DaggerfallUnityItem item)
         {
             return item.TemplateIndex == (int)Weapons.Short_Bow || item.TemplateIndex == (int)Weapons.Long_Bow;
         }
@@ -434,7 +441,7 @@ namespace IdleAdventurer
             return value;
         }
 
-        static int StrengthBonus(IdleSave s)
+        public static int StrengthBonus(IdleSave s)
         {
             return (int)Mathf.Floor((s.stats[IdleData.StatStrength] - 50) / 5f);
         }
@@ -989,7 +996,7 @@ namespace IdleAdventurer
                 w.Emit(IdleData.EvLoot, "Picked up " + item.LongName);
         }
 
-        static bool IsUpgrade(IdleWorld w, DaggerfallUnityItem item, int slot)
+        public static bool IsUpgrade(IdleWorld w, DaggerfallUnityItem item, int slot)
         {
             IdleSave s = w.s;
             DaggerfallUnityItem old = w.gear[slot];
@@ -1008,6 +1015,80 @@ namespace IdleAdventurer
                 return old == null || !Works(old) || item.GetShieldArmorValue() > old.GetShieldArmorValue();
             }
             return old == null || !Works(old) || item.GetMaterialArmorValue() > old.GetMaterialArmorValue();
+        }
+
+        public static int SalePrice(DaggerfallUnityItem item)
+        {
+            return Mathf.Max(1, item.value * item.stackCount / IdleData.SaleDivisor);
+        }
+
+        // Puts a spare weapon or piece of armor in the stash. When the stash is full the cheapest thing in it is
+        // sold, and the gold from that is returned.
+        static int Store(IdleWorld w, DaggerfallUnityItem item)
+        {
+            w.stash.Add(item);
+            int gold = 0;
+            while (w.stash.Count > IdleData.StashSize)
+            {
+                int worst = 0;
+                for (int i = 1; i < w.stash.Count; i++)
+                    if (SalePrice(w.stash[i]) < SalePrice(w.stash[worst]))
+                        worst = i;
+                gold += SalePrice(w.stash[worst]);
+                w.stash.RemoveAt(worst);
+            }
+            return gold;
+        }
+
+        // ------------------------------------------------------------------ the player's own gear changes
+
+        // Wears an item from the stash. Whatever it replaces goes back to the stash, and a two-handed weapon and a
+        // shield push each other out.
+        public static bool EquipFromStash(IdleWorld w, int index)
+        {
+            if (index < 0 || index >= w.stash.Count)
+                return false;
+            DaggerfallUnityItem item = w.stash[index];
+            int slot = SlotFor(item);
+            if (slot < 0)
+                return false;
+            w.stash.RemoveAt(index);
+            if (w.gear[slot] != null)
+                w.stash.Insert(index, w.gear[slot]);
+            w.gear[slot] = item;
+
+            int other = -1;
+            if (slot == IdleData.SlotWeapon && ItemEquipTable.GetItemHands(item) == ItemHands.Both)
+                other = IdleData.SlotShield;
+            else if (slot == IdleData.SlotShield && w.gear[IdleData.SlotWeapon] != null
+                && ItemEquipTable.GetItemHands(w.gear[IdleData.SlotWeapon]) == ItemHands.Both)
+                other = IdleData.SlotWeapon;
+            if (other >= 0 && w.gear[other] != null)
+            {
+                w.stash.Add(w.gear[other]);
+                w.gear[other] = null;
+            }
+            return true;
+        }
+
+        public static bool Unequip(IdleWorld w, int slot)
+        {
+            if (slot < 0 || slot >= w.gear.Length || w.gear[slot] == null)
+                return false;
+            w.stash.Add(w.gear[slot]);
+            w.gear[slot] = null;
+            return true;
+        }
+
+        public static int SellFromStash(IdleWorld w, int index)
+        {
+            if (index < 0 || index >= w.stash.Count)
+                return 0;
+            int gold = SalePrice(w.stash[index]);
+            w.stash.RemoveAt(index);
+            w.s.gold += gold;
+            w.s.goldEarned += gold;
+            return gold;
         }
 
         static void ArriveHome(IdleWorld w)
@@ -1035,8 +1116,12 @@ namespace IdleAdventurer
                         w.Emit(IdleData.EvHome, "Now using " + item.LongName);
                     item = old;
                 }
-                if (item != null)
-                    sold += Mathf.Max(1, item.value * item.stackCount / IdleData.SaleDivisor);
+                if (item == null)
+                    continue;
+                if (SlotFor(item) >= 0 && Works(item))
+                    sold += Store(w, item);
+                else
+                    sold += SalePrice(item);
             }
             w.haul.Clear();
 

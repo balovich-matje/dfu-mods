@@ -372,6 +372,11 @@ namespace IdleAdventurer
                 OpenView();
                 return;
             }
+            if (Input.GetKeyDown(KeyCode.C) || click == HubCanvas.BtnHero)
+            {
+                DaggerfallUI.UIManager.PushWindow(new IdleHeroWindow(DaggerfallUI.UIManager, this));
+                return;
+            }
             if (Input.GetKeyDown(KeyCode.F) || click == HubCanvas.BtnSpeed)
                 IdleClock.NextSpeed();
             if (Input.GetKeyDown(KeyCode.R) || click == HubCanvas.BtnRepeat)
@@ -415,7 +420,7 @@ namespace IdleAdventurer
 
         class HubCanvas : BaseScreenComponent
         {
-            public const int BtnGo = 1, BtnView = 2, BtnRepeat = 3, BtnDeeper = 4, BtnLess = 5, BtnMore = 6, BtnSpeed = 7, BtnTest = 8, BtnBack = 9;
+            public const int BtnGo = 1, BtnView = 2, BtnRepeat = 3, BtnDeeper = 4, BtnLess = 5, BtnMore = 6, BtnSpeed = 7, BtnTest = 8, BtnBack = 9, BtnHero = 10;
             public string[] Report;
             public readonly IdleButtons Buttons = new IdleButtons();
 
@@ -533,7 +538,7 @@ namespace IdleAdventurer
                 for (int i = 0; i < w.gear.Length; i++)
                     if (w.gear[i] != null)
                         gear += (gear.Length > 0 ? ", " : "") + w.gear[i].LongName;
-                y = Wrapped("Gear: " + gear, x, y, inner, sc * 0.9f, line * 0.9f, Muted);
+                y = Wrapped("Gear: " + gear + ". Stash: " + w.stash.Count + " spare.", x, y, inner, sc * 0.9f, line * 0.9f, Muted);
 
                 string doing = IdleSim.PhaseName(s);
                 if (s.phase == IdleData.PhaseFight && s.enemyId >= 0)
@@ -564,6 +569,7 @@ namespace IdleAdventurer
                 bx += Buttons.Add(BtnGo, (s.phase == IdleData.PhaseTown) ? "Send out (G)" : "Watch (V)", bx, bottom, tall, false) + gap;
                 if (s.phase == IdleData.PhaseTown)
                     bx += Buttons.Add(BtnView, "View (V)", bx, bottom, tall, false) + gap;
+                bx += Buttons.Add(BtnHero, "Hero (C)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnRepeat, "Auto-repeat (R)", bx, bottom, tall, s.autoRepeat != 0) + gap;
                 bx += Buttons.Add(BtnDeeper, "Go deeper (D)", bx, bottom, tall, s.autoDeeper != 0) + gap;
                 bx += Buttons.Add(BtnLess, "Floor -", bx, bottom, tall, false) + gap;
