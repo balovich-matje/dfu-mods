@@ -30,7 +30,11 @@ namespace IdleAdventurer
         static readonly Dictionary<string, bool> blockWorks = new Dictionary<string, bool>();
         static readonly Dictionary<int, Texture2D[]> idleFrames = new Dictionary<int, Texture2D[]>();
         static readonly Dictionary<int, Texture2D[]> attackFrames = new Dictionary<int, Texture2D[]>();
+        static readonly Dictionary<int, Texture2D[]> hurtFrames = new Dictionary<int, Texture2D[]>();
+        static readonly Dictionary<int, Texture2D> corpses = new Dictionary<int, Texture2D>();
+        static readonly Dictionary<int, float> corpseHeights = new Dictionary<int, float>();
         static readonly Dictionary<int, float> heights = new Dictionary<int, float>();
+        const float DeathSeconds = 0.4f;
 
         public RenderTexture Target;
         public string BlockName;
@@ -43,6 +47,10 @@ namespace IdleAdventurer
         GameObject enemy;
         Material enemyMaterial;
         int enemyShown = -1;
+        int dyingId = -1;                   // the enemy that is falling or lying dead, -1 when none
+        float diedAt;
+        Vector3 enemyFoot;
+        float enemyLift;
         NavMeshDataInstance nav;
         bool navAdded;
         int agentType = -1;
@@ -395,9 +403,15 @@ namespace IdleAdventurer
                 return;
             Vector3 here = PointAt(distance) + Vector3.up * EyeHeight;
             Vector3 look = PointAt(distance + direction * 1.8f) + Vector3.up * EyeHeight - here;
-            if (faceEnemy && enemy != null)
-                look = enemy.transform.position - here;
             Quaternion want = Quaternion.LookRotation(Level(look), Vector3.up);
+            if (faceEnemy && enemy != null)
+            {
+                // Look at the enemy itself, so one standing lower or higher on stairs stays in view.
+                look = enemyFoot + Vector3.up * Mathf.Min(1.2f, heights.ContainsKey(enemyShown) ? heights[enemyShown] * 0.6f : 0.6f) + Vector3.up * enemyLift - here;
+                look.y *= 0.5f;
+                if (look.sqrMagnitude > 0.01f)
+                    want = Quaternion.LookRotation(look, Vector3.up);
+            }
             if (snap || (here - eye.transform.position).magnitude > 6f)
                 eye.transform.rotation = want;
             else
@@ -465,7 +479,39 @@ namespace IdleAdventurer
         }
 
         // Stands an enemy on the route as a flat sprite that always faces the camera.
-        public void ShowEnemy(int id, float distance, bool attacking)
+        // Where on the route an enemy should stand so the hero can see it: ahead if possible, closer or behind when
+        // a corner or a wall is in the way.
+        public float EnemySpot(float distance, int direction, float gap)
+        {
+            if (!Ready)
+                return distance;
+            Vector3 from = PointAt(distance) + Vector3.up * EyeHeight;
+            for (int tries = 0; tries < 6; tries++)
+            {
+                float reach = gap * (1f - 0.25f * (tries / 2));
+                float at = distance + ((tries % 2 == 0) ? direction : -direction) * reach;
+                if (at < 0f || at > Length)
+                    continue;
+                if (!Physics.Linecast(from, PointAt(at) + Vector3.up * 0.5f))
+                    return at;
+            }
+            float ahead = distance + direction * gap;
+            return (ahead < 0f || ahead > Length) ? distance - direction * gap : ahead;
+        }
+
+        // True while a killed enemy is still dropping (and a moment after), so the hero watches it fall.
+        public bool Falling
+        {
+            get { return enemy != null && enemy.activeSelf && dyingId >= 0 && Time.unscaledTime - diedAt < DeathSeconds + 0.35f; }
+        }
+
+        public bool EnemyPlaced(int id)
+        {
+            return enemy != null && enemy.activeSelf && enemyShown == id;
+        }
+
+        // mode: 0 standing, 1 attacking, 2 just struck.
+        public void ShowEnemy(int id, float distance, int mode)
         {
             if (!Ready)
                 return;
@@ -478,12 +524,21 @@ namespace IdleAdventurer
                 {
                     idle = Frames(file, info.def.HasIdle ? 15 : 0);
                     attackFrames[id] = Frames(file, 5);
+                    hurtFrames[id] = null;
+                    try
+                    {
+                        hurtFrames[id] = Frames(file, 10);
+                    }
+                    catch (Exception)
+                    {
+                    }
                 }
                 catch (Exception ex)
                 {
                     Debug.Log("[Idle] VIEW sprite for enemy " + id + ": " + ex.Message);
                     idle = null;
                     attackFrames[id] = null;
+                    hurtFrames[id] = null;
                 }
                 idleFrames[id] = idle;
                 heights[id] = SpriteHeight(file, info.def.HasIdle ? 15 : 0, (idle != null && idle.Length > 0) ? idle[0].height : 64);
@@ -500,22 +555,31 @@ namespace IdleAdventurer
                 enemyMaterial = MaterialReader.CreateBillboardMaterial();
                 enemy.GetComponent<MeshRenderer>().sharedMaterial = enemyMaterial;
             }
-            Texture2D[] attack = attackFrames[id];
-            Texture2D[] frames = (attacking && attack != null && attack.Length > 0) ? attack : idle;
+            Texture2D[] frames = idle;
+            Texture2D[] other = (mode == 1) ? attackFrames[id] : (mode == 2) ? hurtFrames[id] : null;
+            if (other != null && other.Length > 0)
+                frames = other;
             Texture2D frame = frames[(int)(Time.unscaledTime * 7f) % frames.Length];
             enemyMaterial.mainTexture = frame;
+            dyingId = -1;
 
             float tall = heights[id];
             float wide = tall * frame.width / Mathf.Max(1, frame.height);
             if (enemyShown != id || !enemy.activeSelf)
             {
                 // Flying things hover at chest height instead of standing on the floor.
-                float lift = (IdleSim.Enemy(id).def.Behaviour == MobileBehaviour.Flying) ? 0.8f : 0f;
-                enemy.transform.position = PointAt(distance) + Vector3.up * (tall / 2f + lift);
+                enemyLift = (IdleSim.Enemy(id).def.Behaviour == MobileBehaviour.Flying) ? 0.8f : 0f;
+                enemyFoot = PointAt(distance);
                 enemyShown = id;
                 enemy.SetActive(true);
             }
+            enemy.transform.position = enemyFoot + Vector3.up * (tall / 2f + enemyLift);
             enemy.transform.localScale = new Vector3(wide, tall, 1f);
+            FaceEye();
+        }
+
+        void FaceEye()
+        {
             Vector3 toEye = eye.transform.position - enemy.transform.position;
             toEye.y = 0f;
             if (toEye.sqrMagnitude > 0.001f)
@@ -527,6 +591,78 @@ namespace IdleAdventurer
             if (enemy != null)
                 enemy.SetActive(false);
             enemyShown = -1;
+            dyingId = -1;
+        }
+
+        // The enemy on show has been killed: it drops, then its corpse stays where it fell.
+        public void KillEnemy()
+        {
+            if (enemy == null || !enemy.activeSelf || enemyShown < 0)
+                return;
+            dyingId = enemyShown;
+            enemyShown = -1;                // the next enemy gets its own place, even if it is the same kind
+            diedAt = Time.unscaledTime;
+            if (!corpses.ContainsKey(dyingId))
+            {
+                Texture2D texture = null;
+                float tall = 0.4f;
+                try
+                {
+                    int packed = IdleSim.Enemy(dyingId).def.CorpseTexture;
+                    string file = TextureFile.IndexToFileName(packed >> 16);
+                    Texture2D[] frames = Frames(file, packed & 0xffff);
+                    if (frames != null && frames.Length > 0)
+                    {
+                        texture = frames[0];
+                        tall = SpriteHeight(file, packed & 0xffff, texture.height);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.Log("[Idle] VIEW corpse for enemy " + dyingId + ": " + ex.Message);
+                }
+                corpses[dyingId] = texture;
+                Debug.Log("[Idle] VIEW corpse for enemy " + dyingId + ": " + ((texture != null) ? texture.width + "x" + texture.height + ", " + tall.ToString("0.00") + " m" : "none"));
+                corpseHeights[dyingId] = tall;
+            }
+        }
+
+        // Called while no fight is on: plays out a death, keeps a corpse in place, hides anything else.
+        public void RestEnemy()
+        {
+            if (enemy == null || !enemy.activeSelf)
+                return;
+            if (dyingId < 0)
+            {
+                HideEnemy();
+                return;
+            }
+            float t = (Time.unscaledTime - diedAt) / DeathSeconds;
+            Texture2D corpse = corpses[dyingId];
+            if (t < 1f)
+            {
+                // Falling: the struck frame, squashed towards the floor.
+                Texture2D[] hurt = hurtFrames[dyingId];
+                Texture2D frame = (hurt != null && hurt.Length > 0) ? hurt[0] : idleFrames[dyingId][0];
+                enemyMaterial.mainTexture = frame;
+                float tall = heights[dyingId] * (1f - 0.65f * t);
+                float wide = heights[dyingId] * frame.width / Mathf.Max(1, frame.height);
+                enemy.transform.localScale = new Vector3(wide, tall, 1f);
+                enemy.transform.position = enemyFoot + Vector3.up * (tall / 2f + enemyLift * (1f - t));
+            }
+            else if (corpse != null)
+            {
+                float tall = corpseHeights[dyingId];
+                enemyMaterial.mainTexture = corpse;
+                enemy.transform.localScale = new Vector3(tall * corpse.width / Mathf.Max(1, corpse.height), tall, 1f);
+                enemy.transform.position = enemyFoot + Vector3.up * (tall / 2f);
+            }
+            else
+            {
+                HideEnemy();
+                return;
+            }
+            FaceEye();
         }
     }
 
@@ -539,6 +675,8 @@ namespace IdleAdventurer
         const float WalkSpeed = 3f;
         const float FightGap = 2.3f;
         const int BtnSpeed = 1, BtnRecall = 2, BtnBack = 3, BtnGo = 4;
+        const float FadeOut = 0.3f;
+        const float FadeIn = 0.5f;
 
         class Floater
         {
@@ -556,6 +694,14 @@ namespace IdleAdventurer
         float swingUntil;
         float enemyAttackUntil;
         float hurtUntil;
+        float enemyHurtUntil;
+        float leaveAt;                      // when the fade to black before a new floor ends, 0 when not fading out
+        float curtainFrom = -10f;           // when the last fade from black started
+        bool showing;                       // the dungeon was on screen last frame
+        int lastEnemy = -1;
+        float soundAt;
+        float stepAt;
+        int stepCount;
         readonly List<Floater> floaters = new List<Floater>();
         WeaponTypes weaponType = WeaponTypes.None;
         Texture2D weaponIdle;
@@ -654,24 +800,43 @@ namespace IdleAdventurer
                 return;
             }
 
-            // A new floor is built while the screen is dark: one dark frame first, then the work.
+            // A new floor: the old one fades to black, the new one is built on a dark frame, then it fades in.
+            float now = Time.unscaledTime;
             bool dungeon = InDungeon(s) && scene != null;
-            if (dungeon && (loadedFloor != s.floor || loadedSeed != s.dungeonSeed))
+            bool stale = dungeon && (loadedFloor != s.floor || loadedSeed != s.dungeonSeed);
+            if (stale)
             {
-                if (loadIn == 0)
-                    loadIn = 2;
-                loadIn--;
-                if (loadIn > 0)
-                    return;
-                scene.LoadFloor(s.dungeonSeed, s.floor);
-                loadedFloor = s.floor;
-                loadedSeed = s.dungeonSeed;
-                loadIn = 0;
-                seen = w.eventTotal;
+                if (leaveAt == 0f)
+                    leaveAt = now + (showing ? FadeOut : 0.001f);
+                if (now >= leaveAt)
+                {
+                    if (loadIn == 0)
+                        loadIn = 2;
+                    loadIn--;
+                    if (loadIn > 0)
+                        return;
+                    scene.LoadFloor(s.dungeonSeed, s.floor);
+                    loadedFloor = s.floor;
+                    loadedSeed = s.dungeonSeed;
+                    loadIn = 0;
+                    leaveAt = 0f;
+                    stale = false;
+                    curtainFrom = Time.unscaledTime;
+                    now = Time.unscaledTime;
+                }
             }
+            else
+            {
+                leaveAt = 0f;
+            }
+            bool onShow = dungeon && !stale && scene.Ready;
+            if (showing && !dungeon)
+                curtainFrom = now;
+            showing = onShow;
 
             IdleClock.Tick();
-            float now = Time.unscaledTime;
+            if (s.phase == IdleData.PhaseFight && s.enemyId >= 0)
+                lastEnemy = s.enemyId;
 
             // What happened since the last frame.
             long fresh = w.eventTotal - seen;
@@ -686,6 +851,12 @@ namespace IdleAdventurer
                     enemyAttackUntil = now + 0.5f;
                 if (e.type == IdleData.EvEnemyHit)
                     hurtUntil = now + 0.25f;
+                if (e.type == IdleData.EvHeroHit)
+                    enemyHurtUntil = now + 0.22f;
+                if (e.type == IdleData.EvKill && scene != null)
+                    scene.KillEnemy();
+                if (onShow)
+                    Sound(e, now);
                 if ((e.type == IdleData.EvHeroHit || e.type == IdleData.EvEnemyHit) && floaters.Count < 12)
                 {
                     Floater f = new Floater();
@@ -699,9 +870,17 @@ namespace IdleAdventurer
                 if (now - floaters[i].born > 1.1f)
                     floaters.RemoveAt(i);
 
-            if (!dungeon || !scene.Ready)
+            if (!onShow)
                 return;
             PickWeapon(w);
+
+            // Footsteps, at normal speed only.
+            if (s.phase == IdleData.PhaseExplore && IdleClock.Speed == 1 && now >= stepAt)
+            {
+                stepAt = now + 0.48f;
+                stepCount++;
+                DaggerfallUI.Instance.PlayOneShot((stepCount % 2 == 0) ? SoundClips.PlayerFootstepStone1 : SoundClips.PlayerFootstepStone2);
+            }
 
             // Position: time walked on this floor, back and forth along the route.
             float walked = s.floorTicks / (float)IdleData.TicksPerSecond * WalkSpeed;
@@ -714,16 +893,68 @@ namespace IdleAdventurer
             bool fighting = s.phase == IdleData.PhaseFight && s.enemyId >= 0;
             if (fighting)
             {
-                float at = distance + direction * FightGap;
-                if (at < 0f || at > lap)
-                    at = distance - direction * FightGap;
-                scene.ShowEnemy(s.enemyId, at, now < enemyAttackUntil);
+                float at = scene.EnemyPlaced(s.enemyId) ? 0f : scene.EnemySpot(distance, direction, FightGap);
+                scene.ShowEnemy(s.enemyId, at, (now < enemyAttackUntil) ? 1 : (now < enemyHurtUntil) ? 2 : 0);
             }
             else
             {
-                scene.HideEnemy();
+                scene.RestEnemy();
             }
-            scene.PlaceEye(distance, direction, fighting, Mathf.Min(0.1f, Time.unscaledDeltaTime) * Mathf.Min(4, IdleClock.Speed));
+            scene.PlaceEye(distance, direction, fighting || scene.Falling, Mathf.Min(0.1f, Time.unscaledDeltaTime) * Mathf.Min(4, IdleClock.Speed));
+        }
+
+        // The game's own sounds for what just happened. Faster speeds play fewer of them.
+        void Sound(IdleEvent e, float now)
+        {
+            int clip = -1;
+            bool always = false;
+            MobileEnemy def = new MobileEnemy();
+            bool known = lastEnemy >= 0;
+            if (known)
+                def = IdleSim.Enemy(lastEnemy).def;
+            switch (e.type)
+            {
+                case IdleData.EvFight:
+                    if (IdleStore.W.s.enemyId >= 0)
+                        clip = IdleSim.Enemy(IdleStore.W.s.enemyId).def.BarkSound;
+                    break;
+                case IdleData.EvHeroHit:
+                    clip = (int)SoundClips.Hit1 + UnityEngine.Random.Range(0, 5);
+                    break;
+                case IdleData.EvHeroMiss:
+                    clip = (known && def.ParrySounds) ? (int)SoundClips.Parry1 + UnityEngine.Random.Range(0, 9) : (int)SoundClips.SwingMediumPitch;
+                    break;
+                case IdleData.EvEnemyHit:
+                    clip = (int)SoundClips.Hit1 + UnityEngine.Random.Range(0, 5);
+                    break;
+                case IdleData.EvEnemyMiss:
+                    if (known)
+                        clip = def.AttackSound;
+                    break;
+                case IdleData.EvKill:
+                case IdleData.EvDied:
+                    clip = (int)SoundClips.BodyFall;
+                    always = true;
+                    break;
+                case IdleData.EvLoot:
+                    if (e.text.StartsWith("Found"))
+                        clip = (int)SoundClips.GoldPieces;
+                    break;
+                case IdleData.EvLevel:
+                    clip = (int)SoundClips.LevelUp;
+                    always = true;
+                    break;
+                case IdleData.EvFloor:
+                    clip = (int)SoundClips.DungeonDoorOpen;
+                    always = true;
+                    break;
+            }
+            if (clip <= 0)
+                return;
+            if (!always && (IdleClock.Speed > 4 || now < soundAt))
+                return;
+            soundAt = now + 0.07f * IdleClock.Speed;
+            DaggerfallUI.Instance.PlayOneShot((SoundClips)clip);
         }
 
         class ViewCanvas : BaseScreenComponent
@@ -748,7 +979,9 @@ namespace IdleAdventurer
                 float pad = Mathf.Round(H * 0.025f);
 
                 IdleUi.Box(new Rect(0, 0, W, H), Color.black);
-                bool dungeon = InDungeon(s) && o.scene != null && o.scene.Ready && o.loadedFloor == s.floor && o.loadedSeed == s.dungeonSeed;
+                bool fadingOut = o.leaveAt > 0f && now < o.leaveAt && o.loadIn == 0;
+                bool dungeon = InDungeon(s) && o.scene != null && o.scene.Ready
+                    && ((o.loadedFloor == s.floor && o.loadedSeed == s.dungeonSeed) || fadingOut);
                 if (dungeon)
                 {
                     GUI.DrawTexture(new Rect(0, 0, W, H), o.scene.Target, ScaleMode.StretchToFill, false);
@@ -806,6 +1039,11 @@ namespace IdleAdventurer
                         IdleUi.Centred("Gold " + s.gold + "    Level " + s.level + "    Runs " + s.expeditions, W * 0.5f, H * 0.4f + line * 2.2f, sc, IdleUi.White);
                     }
                 }
+
+                // The fade: to black before a new floor, from black after one and when leaving the dungeon.
+                float dark = fadingOut ? 1f - (o.leaveAt - now) / FadeOut : 1f - (now - o.curtainFrom) / FadeIn;
+                if (dark > 0f)
+                    IdleUi.Box(new Rect(0, 0, W, H), new Color(0f, 0f, 0f, Mathf.Clamp01(dark)));
 
                 // Hero health, bottom left.
                 float hw = Mathf.Round(W * 0.22f);

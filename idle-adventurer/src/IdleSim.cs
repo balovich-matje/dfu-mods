@@ -305,12 +305,14 @@ namespace IdleAdventurer
             return -1;
         }
 
+        // Items are written one by one. The game's own item bag is keyed by item ID, and IDs start again every time
+        // the game is launched, so two of the hero's items can share one and the bag would silently drop one of them.
         static string Pack(List<DaggerfallUnityItem> items)
         {
-            ItemCollection bag = new ItemCollection();
+            ItemData_v1[] data = new ItemData_v1[items.Count];
             for (int i = 0; i < items.Count; i++)
-                bag.AddItem(items[i], ItemCollection.AddPosition.Back, true);
-            return SaveLoadManager.Serialize(typeof(ItemData_v1[]), bag.SerializeItems(), false);
+                data[i] = items[i].GetSaveData();
+            return SaveLoadManager.Serialize(typeof(ItemData_v1[]), data, false);
         }
 
         static List<DaggerfallUnityItem> Unpack(string blob)
@@ -319,10 +321,8 @@ namespace IdleAdventurer
             if (string.IsNullOrEmpty(blob))
                 return items;
             ItemData_v1[] data = (ItemData_v1[])SaveLoadManager.Deserialize(typeof(ItemData_v1[]), blob);
-            ItemCollection bag = new ItemCollection();
-            bag.DeserializeItems(data);
-            for (int i = 0; i < bag.Count; i++)
-                items.Add(bag.GetItem(i));
+            for (int i = 0; data != null && i < data.Length; i++)
+                items.Add(new DaggerfallUnityItem(data[i]));
             return items;
         }
 

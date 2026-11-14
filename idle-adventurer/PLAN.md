@@ -28,8 +28,13 @@ Status: M0 (spike) and M1 (simulation core, balance pass) are done. Decisions al
   longest route is under 80 m are skipped. The camera's place on the route comes from the time walked on the floor
   (3 m/s, back and forth), so a view can be opened at any moment. Fights stand the enemy 2.3 m ahead at the game's
   own sprite size; hits, misses and damage come from simulation events. Speed 1x/4x/16x, a "call home" order, and
-  mouse buttons in the hub and the view (keys still work). Still to do for M2: enemy death and hurt frames, sounds,
-  a fade between floors.
+  mouse buttons in the hub and the view (keys still work). Enemies show their struck frame when hit; a killed one
+  drops and leaves the game's corpse sprite. An enemy is placed where the hero has a clear line to it (closer, or
+  behind, when a corner is in the way) and the camera tilts towards it. The game's own sounds play for hits,
+  misses, enemy barks, kills, gold, level-ups, floor changes and footsteps (fewer at 4x, almost none at 16x).
+  Floors fade to black and back. M2 is done apart from a mouse-only run, which cannot be tested in the background.
+- **Item IDs:** the game's item IDs restart at every launch, so the hero's items can share one. Items are therefore
+  saved one by one, never through `ItemCollection` (which is keyed by ID and silently dropped the hero's sword).
 - **Hero screen (`src/IdleHero.cs`, key C in the hub):** attributes, combat skills, the nine worn slots, and a stash
   of 24 spare weapons and armor pieces. Usable weapons and armor the hero brings back (and anything auto-equip
   replaces) go to the stash instead of being sold; when it is full the cheapest piece is sold. Equip, take off and
