@@ -314,6 +314,9 @@ namespace IdleAdventurer
             IdleWorld w = IdleStore.W;
             w.s.opened++;
             w.record = true;
+            IdlePlaces.Name(w);
+            if (w.shop.Count == 0 && string.IsNullOrEmpty(w.s.shopBlob))
+                IdleSim.Restock(w);
             CatchUp(w);
             IdleStore.Save();
         }
@@ -372,6 +375,13 @@ namespace IdleAdventurer
                 OpenView();
                 return;
             }
+            if (Input.GetKeyDown(KeyCode.M) || click == HubCanvas.BtnMap)
+            {
+                DaggerfallUI.UIManager.PushWindow(new IdleMapWindow(DaggerfallUI.UIManager, this));
+                return;
+            }
+            if (Input.GetKeyDown(KeyCode.K) || click == HubCanvas.BtnSkip)
+                s.skipCleared = (s.skipCleared == 0) ? 1 : 0;
             if (Input.GetKeyDown(KeyCode.C) || click == HubCanvas.BtnHero)
             {
                 DaggerfallUI.UIManager.PushWindow(new IdleHeroWindow(DaggerfallUI.UIManager, this));
@@ -397,6 +407,7 @@ namespace IdleAdventurer
             if (Input.GetKeyDown(KeyCode.N) && shift)
             {
                 IdleStore.NewHero();
+                IdlePlaces.Name(IdleStore.W);
                 IdleStore.W.record = true;
                 IdleStore.W.Emit(IdleData.EvInfo, "A new adventurer arrives in town");
                 IdleStore.Save();
@@ -420,7 +431,7 @@ namespace IdleAdventurer
 
         class HubCanvas : BaseScreenComponent
         {
-            public const int BtnGo = 1, BtnView = 2, BtnRepeat = 3, BtnDeeper = 4, BtnLess = 5, BtnMore = 6, BtnSpeed = 7, BtnTest = 8, BtnBack = 9, BtnHero = 10;
+            public const int BtnGo = 1, BtnView = 2, BtnRepeat = 3, BtnDeeper = 4, BtnLess = 5, BtnMore = 6, BtnSpeed = 7, BtnTest = 8, BtnBack = 9, BtnHero = 10, BtnMap = 11, BtnSkip = 12;
             public string[] Report;
             public readonly IdleButtons Buttons = new IdleButtons();
 
@@ -553,14 +564,22 @@ namespace IdleAdventurer
                 }
                 y += line * 0.6f;
 
+                string where = "Destination: " + IdleSim.Destination(s) + " (" + IdleData.DungeonNames[s.dungeonType] + ", " + s.travelSeconds
+                    + " s away, cleared to floor " + s.clearedFloors[s.dungeonType] + ")";
+                if (s.nextType >= 0)
+                    where += "    Next: " + s.nextName;
+                Text(where, x, y, sc * 0.9f, White);
+                y += line;
                 Text("Orders: target floor " + s.targetFloor + ", retreat below " + s.retreatPercent + "% health, auto-repeat "
-                    + (s.autoRepeat != 0 ? "on" : "off") + ", go deeper after a clear " + (s.autoDeeper != 0 ? "on" : "off") + ", speed " + IdleClock.Speed + "x",
+                    + (s.autoRepeat != 0 ? "on" : "off") + ", go deeper after a clear " + (s.autoDeeper != 0 ? "on" : "off")
+                    + ", skip cleared floors " + (s.skipCleared != 0 ? "on" : "off") + ", speed " + IdleClock.Speed + "x",
                     x, y, sc * 0.9f, Muted);
                 y += line;
-                Text("Runs " + s.expeditions + " (cleared " + s.cleared + ", retreated " + s.retreats + ", died " + s.deaths + ")    Kills " + s.kills
+                Text("Runs " + s.expeditions + " (cleared " + s.clears + ", retreated " + s.retreats + ", died " + s.deaths + ")    Kills " + s.kills
                     + "    Deepest floor " + s.deepestFloor, x, y, sc * 0.9f, Muted);
                 y += line * 1.3f;
 
+                // Two rows of buttons: what to do, and the standing orders.
                 float tall = Mathf.Round(line * 1.25f);
                 float bottom = r.yMax - pad - tall;
                 float gap = Mathf.Round(line * 0.3f);
@@ -569,14 +588,18 @@ namespace IdleAdventurer
                 bx += Buttons.Add(BtnGo, (s.phase == IdleData.PhaseTown) ? "Send out (G)" : "Watch (V)", bx, bottom, tall, false) + gap;
                 if (s.phase == IdleData.PhaseTown)
                     bx += Buttons.Add(BtnView, "View (V)", bx, bottom, tall, false) + gap;
-                bx += Buttons.Add(BtnHero, "Hero (C)", bx, bottom, tall, false) + gap;
-                bx += Buttons.Add(BtnRepeat, "Auto-repeat (R)", bx, bottom, tall, s.autoRepeat != 0) + gap;
-                bx += Buttons.Add(BtnDeeper, "Go deeper (D)", bx, bottom, tall, s.autoDeeper != 0) + gap;
-                bx += Buttons.Add(BtnLess, "Floor -", bx, bottom, tall, false) + gap;
-                bx += Buttons.Add(BtnMore, "Floor +", bx, bottom, tall, false) + gap;
+                bx += Buttons.Add(BtnHero, "Hero and shop (C)", bx, bottom, tall, false) + gap;
+                bx += Buttons.Add(BtnMap, "Destination (M)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnSpeed, "Speed " + IdleClock.Speed + "x (F)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnTest, "Test (T)", bx, bottom, tall, false) + gap;
                 Buttons.Add(BtnBack, "Back (Esc)", bx, bottom, tall, false);
+                bottom -= tall + gap;
+                bx = x;
+                bx += Buttons.Add(BtnRepeat, "Auto-repeat (R)", bx, bottom, tall, s.autoRepeat != 0) + gap;
+                bx += Buttons.Add(BtnDeeper, "Go deeper (D)", bx, bottom, tall, s.autoDeeper != 0) + gap;
+                bx += Buttons.Add(BtnSkip, "Skip cleared floors (K)", bx, bottom, tall, s.skipCleared != 0) + gap;
+                bx += Buttons.Add(BtnLess, "Floor -", bx, bottom, tall, false) + gap;
+                Buttons.Add(BtnMore, "Floor +", bx, bottom, tall, false);
                 bottom -= line * 0.4f;
 
                 if (Report != null)
@@ -614,13 +637,43 @@ namespace IdleAdventurer
                 if (a != b)
                     lines.Add("      " + b);
 
+                // Time away is replayed in one step; it has to give the same result as watching it tick by tick.
+                IdleWorld big = IdleSim.NewHero(4242, "Test");
+                IdleWorld small = IdleSim.NewHero(4242, "Test");
+                big.s.autoRepeat = 1;
+                small.s.autoRepeat = 1;
+                IdleSim.Advance(big, 36000);
+                for (int i = 0; i < 36000 / 3; i++)
+                    IdleSim.Advance(small, 3);
+                string one1 = IdleSim.Summary(big);
+                string one2 = IdleSim.Summary(small);
+                lines.Add((one1 == one2 ? "OK" : "FAIL") + "  An hour in one step and in 0.3 s steps: " + (one1 == one2 ? "identical" : "DIFFERENT"));
+                if (one1 != one2)
+                {
+                    lines.Add("      " + one1);
+                    lines.Add("      " + one2);
+                }
+
+                // Every dungeon type: 20 runs each with a fresh hero.
+                for (int type = 0; type < IdleData.DungeonTypes; type++)
+                {
+                    IdleWorld d = IdleSim.NewHero(999 + type, "Test");
+                    d.s.dungeonType = type;
+                    d.s.autoRepeat = 1;
+                    d.stopAfter = 20;
+                    for (int guard = 0; guard < 400 && d.s.expeditions < 20; guard++)
+                        IdleSim.Advance(d, 36000);
+                    lines.Add(IdleData.DungeonNames[type] + ", 20 runs: level " + d.s.level + ", cleared to floor " + d.s.clearedFloors[type] + ", died "
+                        + d.s.deaths + ", gold " + d.s.gold + ", " + (d.s.clock / 600) + " min");
+                }
+
                 int clearedFirst = 0;
                 int diedFirst = 0;
                 const int heroes = 40;
                 for (int seed = 1; seed <= heroes; seed++)
                 {
                     IdleWorld one = IdleSim.Simulate(seed * 7919, 1, false);
-                    clearedFirst += one.s.cleared;
+                    clearedFirst += one.s.clears;
                     diedFirst += one.s.deaths;
                 }
                 lines.Add("New hero, first run, floor 1 only: " + clearedFirst + " of " + heroes + " cleared it, " + diedFirst + " died, "

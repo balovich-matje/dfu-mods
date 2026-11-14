@@ -63,6 +63,24 @@ namespace IdleAdventurer
         public const int SaleDivisor = 4;               // loot sells for a quarter of its listed value
         public const int StashSize = 24;                // spare weapons and armor kept in town
 
+        public const int DungeonTypes = 19;             // DFRegion.DungeonTypes 0-18
+        public const int RunFloors = 3;                 // with "skip cleared floors" a run covers this many floors
+        public const int ShopSize = 8;
+        public const int PackStepKg = 25;
+        public const int PackLevels = 8;
+
+        public static readonly string[] DungeonNames = { "Crypt", "Orc stronghold", "Human stronghold", "Prison", "Desecrated temple", "Mine",
+            "Natural cave", "Coven", "Vampire haunt", "Laboratory", "Harpy nest", "Ruined castle", "Spider nest", "Giant stronghold",
+            "Dragon's den", "Barbarian stronghold", "Volcanic caves", "Scorpion nest", "Cemetery" };
+
+        public static int PackCost(int level)
+        {
+            int cost = 400;
+            for (int i = 0; i < level; i++)
+                cost *= 4;
+            return cost;
+        }
+
         public static readonly string[] SlotNames = { "Head", "Right arm", "Left arm", "Chest", "Hands", "Legs", "Feet", "Shield", "Weapon" };
 
         public static int RoomsOnFloor(int floor)
@@ -98,6 +116,7 @@ namespace IdleAdventurer
         public string gearBlob;
         public string haulBlob;
         public string stashBlob;
+        public string shopBlob;
 
         public int rng = 1;
         public long clock;                  // ticks since the hero was created
@@ -123,6 +142,16 @@ namespace IdleAdventurer
         public int floorTicks;              // time spent walking on this floor; the view turns it into a position
         public int recall;                  // 1 when the player has ordered the hero home
         public int dungeonType = IdleData.DefaultDungeonType;
+        public string destName = "";        // the dungeon's name on the map
+        public int travelSeconds = IdleData.TravelSeconds;
+        public int nextType = -1;           // a destination chosen while the hero is away; used from the next run on
+        public string nextName = "";
+        public int nextTravel;
+        public int[] clearedFloors;               // per dungeon type: the deepest floor cleared
+        public int[] targets;               // per dungeon type: the target floor last used there
+        public int skipCleared = 1;         // start a run a few floors above the target instead of at floor 1
+        public int startFloor = 1;
+        public int packLevel;
         public int floor;
         public int roomsLeft;
         public int carried;                 // 1 while the hero is being carried home after dying
@@ -148,7 +177,7 @@ namespace IdleAdventurer
         public int runGold;
         public int runItems;
         public int expeditions;
-        public int cleared;
+        public int clears;
         public int retreats;
         public int fled;
         public int deaths;
@@ -181,6 +210,7 @@ namespace IdleAdventurer
         public DaggerfallUnityItem[] gear = new DaggerfallUnityItem[IdleData.SlotCount];
         public List<DaggerfallUnityItem> haul = new List<DaggerfallUnityItem>();
         public List<DaggerfallUnityItem> stash = new List<DaggerfallUnityItem>();
+        public List<DaggerfallUnityItem> shop = new List<DaggerfallUnityItem>();
         public List<IdleEvent> events = new List<IdleEvent>();
         public bool record;
         public long eventTotal;             // events ever emitted, so a viewer can tell which ones are new
@@ -269,6 +299,8 @@ namespace IdleAdventurer
             Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Left_Pauldron, ArmorMaterialTypes.Leather));
             Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Right_Pauldron, ArmorMaterialTypes.Leather));
             Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Buckler, ArmorMaterialTypes.Leather));
+            Arrays(s);
+            Restock(w);
             return w;
         }
 
@@ -335,6 +367,7 @@ namespace IdleAdventurer
             w.s.gearBlob = Pack(worn);
             w.s.haulBlob = Pack(w.haul);
             w.s.stashBlob = Pack(w.stash);
+            w.s.shopBlob = Pack(w.shop);
         }
 
         public static IdleWorld FromSave(IdleSave s)
@@ -346,7 +379,24 @@ namespace IdleAdventurer
                 Equip(w, worn[i]);
             w.haul = Unpack(s.haulBlob);
             w.stash = Unpack(s.stashBlob);
+            w.shop = Unpack(s.shopBlob);
+            Arrays(s);
             return w;
+        }
+
+        // Saves from before destinations existed have no per-dungeon lists.
+        static void Arrays(IdleSave s)
+        {
+            if (s.clearedFloors == null || s.clearedFloors.Length != IdleData.DungeonTypes)
+                s.clearedFloors = new int[IdleData.DungeonTypes];
+            if (s.targets == null || s.targets.Length != IdleData.DungeonTypes)
+                s.targets = new int[IdleData.DungeonTypes];
+            if (s.dungeonType < 0 || s.dungeonType >= IdleData.DungeonTypes)
+                s.dungeonType = IdleData.DefaultDungeonType;
+            if (s.travelSeconds <= 0)
+                s.travelSeconds = IdleData.TravelSeconds;
+            if (s.startFloor < 1)
+                s.startFloor = 1;
         }
 
         public static bool Usable(IdleSave s)
@@ -375,13 +425,11 @@ namespace IdleAdventurer
             return e;
         }
 
-        static MobileTypes[] Table(int dungeonType)
+        public static MobileTypes[] Table(int dungeonType)
         {
+            // The first 19 tables are the dungeon types, in order.
             RandomEncounterTable[] tables = RandomEncounters.EncounterTables;
-            for (int i = 0; i < tables.Length; i++)
-                if ((int)tables[i].DungeonType == dungeonType)
-                    return tables[i].Enemies;
-            return tables[0].Enemies;
+            return tables[(dungeonType >= 0 && dungeonType < IdleData.DungeonTypes) ? dungeonType : 0].Enemies;
         }
 
         static int EnemyLevel(IdleSave s, EnemyInfo e)
@@ -446,7 +494,12 @@ namespace IdleAdventurer
             return (int)Mathf.Floor((s.stats[IdleData.StatStrength] - 50) / 5f);
         }
 
-        static float CarriedWeight(IdleWorld w)
+        public static float Capacity(IdleSave s)
+        {
+            return s.stats[IdleData.StatStrength] * 1.5f + s.packLevel * IdleData.PackStepKg;
+        }
+
+        public static float CarriedWeight(IdleWorld w)
         {
             float kg = 0f;
             for (int i = 0; i < w.gear.Length; i++)
@@ -521,13 +574,31 @@ namespace IdleAdventurer
 
         // ------------------------------------------------------------------ the loop
 
+        public static string Destination(IdleSave s)
+        {
+            string kind = IdleData.DungeonNames[Mathf.Clamp(s.dungeonType, 0, IdleData.DungeonTypes - 1)];
+            return string.IsNullOrEmpty(s.destName) ? "the " + kind.ToLower() : s.destName;
+        }
+
         public static void StartExpedition(IdleWorld w)
         {
             IdleSave s = w.s;
             if (s.phase != IdleData.PhaseTown)
                 return;
+            if (s.nextType >= 0 && s.nextType < IdleData.DungeonTypes)
+            {
+                s.targets[s.dungeonType] = s.targetFloor;
+                s.dungeonType = s.nextType;
+                s.destName = s.nextName;
+                s.travelSeconds = Mathf.Max(5, s.nextTravel);
+                s.targetFloor = Mathf.Max(1, s.targets[s.dungeonType] > 0 ? s.targets[s.dungeonType] : 2);
+            }
+            s.nextType = -1;
+            s.startFloor = 1;
+            if (s.skipCleared != 0)
+                s.startFloor = Mathf.Clamp(s.targetFloor - (IdleData.RunFloors - 1), 1, s.clearedFloors[s.dungeonType] + 1);
             s.phase = IdleData.PhaseOut;
-            s.phaseLeft = IdleData.TravelSeconds * IdleData.TicksPerSecond;
+            s.phaseLeft = s.travelSeconds * IdleData.TicksPerSecond;
             s.phaseTotal = s.phaseLeft;
             s.dungeonSeed = Next(s);
             s.floor = 0;
@@ -538,7 +609,7 @@ namespace IdleAdventurer
             s.runGold = 0;
             s.runItems = 0;
             if (w.record)
-                w.Emit(IdleData.EvInfo, s.heroName + " sets out, aiming for floor " + s.targetFloor);
+                w.Emit(IdleData.EvInfo, s.heroName + " sets out for " + Destination(s) + ", floors " + s.startFloor + " to " + s.targetFloor);
         }
 
         public static void Advance(IdleWorld w, long ticks)
@@ -609,12 +680,12 @@ namespace IdleAdventurer
             IdleSave s = w.s;
             if (s.phase == IdleData.PhaseOut)
             {
-                s.floor = 1;
+                s.floor = Mathf.Max(1, s.startFloor);
                 s.floorTicks = 0;
-                s.roomsLeft = IdleData.RoomsOnFloor(1);
+                s.roomsLeft = IdleData.RoomsOnFloor(s.floor);
                 Explore(s);
                 if (w.record)
-                    w.Emit(IdleData.EvFloor, "Entered the dungeon");
+                    w.Emit(IdleData.EvFloor, (s.floor > 1) ? "Entered the dungeon and went straight down to floor " + s.floor : "Entered the dungeon");
             }
             else if (s.phase == IdleData.PhaseExplore)
             {
@@ -630,13 +701,15 @@ namespace IdleAdventurer
                 }
                 else if (s.floor >= s.targetFloor)
                 {
-                    s.cleared++;
+                    s.clearedFloors[s.dungeonType] = Mathf.Max(s.clearedFloors[s.dungeonType], s.floor);
+                    s.clears++;
                     if (s.autoDeeper != 0)
                         s.targetFloor++;
                     GoHome(w, "Floor " + s.floor + " cleared, heading home");
                 }
                 else
                 {
+                    s.clearedFloors[s.dungeonType] = Mathf.Max(s.clearedFloors[s.dungeonType], s.floor);
                     s.floor++;
                     s.floorTicks = 0;
                     s.roomsLeft = IdleData.RoomsOnFloor(s.floor);
@@ -655,7 +728,7 @@ namespace IdleAdventurer
         {
             IdleSave s = w.s;
             s.phase = IdleData.PhaseBack;
-            s.phaseLeft = IdleData.TravelSeconds * IdleData.TicksPerSecond;
+            s.phaseLeft = s.travelSeconds * IdleData.TicksPerSecond;
             s.phaseTotal = s.phaseLeft;
             s.enemyId = -1;
             if (w.record)
@@ -969,7 +1042,7 @@ namespace IdleAdventurer
             if (item == null)
                 return;
             float need = item.weightInKg * item.stackCount;
-            float room = s.stats[IdleData.StatStrength] * 1.5f - CarriedWeight(w);
+            float room = Capacity(s) - CarriedWeight(w);
             while (need > room)
             {
                 int worst = -1;
@@ -1091,6 +1164,77 @@ namespace IdleAdventurer
             return gold;
         }
 
+        // The shop: a fresh set of weapons and armor every time the hero comes home, better as the hero goes deeper.
+        public static void Restock(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            int level = Mathf.Max(1, (s.level + s.deepestFloor + 1) / 2);
+            w.shop.Clear();
+            UnityEngine.Random.State keep = UnityEngine.Random.state;
+            UnityEngine.Random.InitState(Next(s));
+            try
+            {
+                for (int i = 0; i < IdleData.ShopSize; i++)
+                {
+                    DaggerfallUnityItem item = (i % 2 == 0)
+                        ? ItemBuilder.CreateRandomWeapon(level)
+                        : ItemBuilder.CreateRandomArmor(level, (Genders)s.gender, (Races)s.race);
+                    if (item != null && SlotFor(item) >= 0)
+                        w.shop.Add(item);
+                }
+            }
+            finally
+            {
+                UnityEngine.Random.state = keep;
+            }
+        }
+
+        public static int ShopPrice(DaggerfallUnityItem item)
+        {
+            return Mathf.Max(5, item.value * item.stackCount);
+        }
+
+        // Buys a shop item into the stash. Returns false when there is no gold or no room for it.
+        public static bool Buy(IdleWorld w, int index)
+        {
+            if (index < 0 || index >= w.shop.Count || w.stash.Count >= IdleData.StashSize)
+                return false;
+            int price = ShopPrice(w.shop[index]);
+            if (price > w.s.gold)
+                return false;
+            w.s.gold -= price;
+            w.stash.Add(w.shop[index]);
+            w.shop.RemoveAt(index);
+            return true;
+        }
+
+        public static bool BuyPack(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            if (s.packLevel >= IdleData.PackLevels || IdleData.PackCost(s.packLevel) > s.gold)
+                return false;
+            s.gold -= IdleData.PackCost(s.packLevel);
+            s.packLevel++;
+            return true;
+        }
+
+        // Sets where the hero goes. In town it applies at once, otherwise from the next run.
+        public static void SetDestination(IdleWorld w, int type, string name, int travelSeconds)
+        {
+            IdleSave s = w.s;
+            s.nextType = type;
+            s.nextName = name;
+            s.nextTravel = travelSeconds;
+            if (s.phase != IdleData.PhaseTown)
+                return;
+            s.targets[s.dungeonType] = s.targetFloor;
+            s.dungeonType = type;
+            s.destName = name;
+            s.travelSeconds = Mathf.Max(5, travelSeconds);
+            s.targetFloor = Mathf.Max(1, s.targets[type] > 0 ? s.targets[type] : 2);
+            s.nextType = -1;
+        }
+
         static void ArriveHome(IdleWorld w)
         {
             IdleSave s = w.s;
@@ -1144,6 +1288,7 @@ namespace IdleAdventurer
                 item.currentCondition = item.maxCondition;
             }
 
+            Restock(w);
             if (w.record)
                 w.Emit(IdleData.EvHome, "Back in town: " + s.runKills + " kills, " + s.runGold + " gold found, loot sold for " + sold
                     + ", repairs " + repairs + ((equipped > 0) ? ", " + equipped + " upgrade(s)" : ""));
@@ -1159,7 +1304,7 @@ namespace IdleAdventurer
             for (int i = 0; i < w.gear.Length; i++)
                 if (w.gear[i] != null)
                     gear += (gear.Length > 0 ? ", " : "") + w.gear[i].LongName;
-            return "level " + s.level + ", health " + s.maxHealth + ", gold " + s.gold + ", runs " + s.expeditions + " (cleared " + s.cleared
+            return "level " + s.level + ", health " + s.maxHealth + ", gold " + s.gold + ", runs " + s.expeditions + " (cleared " + s.clears
                 + ", retreated " + s.retreats + ", died " + s.deaths + "), kills " + s.kills + ", deepest floor " + s.deepestFloor
                 + ", fled " + s.fled + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
                 + (long)(s.goldEarned / Mathf.Max(0.05f, s.clock / 36000f)) + " | " + gear;

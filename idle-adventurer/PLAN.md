@@ -33,6 +33,21 @@ Status: M0 (spike) and M1 (simulation core, balance pass) are done. Decisions al
   behind, when a corner is in the way) and the camera tilts towards it. The game's own sounds play for hits,
   misses, enemy barks, kills, gold, level-ups, floor changes and footsteps (fewer at 4x, almost none at 16x).
   Floors fade to black and back. M2 is done apart from a mouse-only run, which cannot be tested in the background.
+- **M3, first part (`src/IdleMap.cs`, shop in `src/IdleHero.cs`):**
+  - *Destinations (M in the hub):* one real dungeon per dungeon type, the nearest of that type to Daggerfall city
+    in the game's map data, with travel time from the distance (12 to 90 s each way). The card lists who lives
+    there from shallow to deep and marks enemies the hero's weapon cannot hurt. Chosen while away, a destination
+    applies from the next run. Target floor and deepest cleared floor are kept per dungeon type.
+  - *Skip cleared floors (K, on by default):* a run starts two floors above its target, never deeper than one
+    past the deepest floor cleared there, so a run is about three floors however deep the hero is.
+  - *Shop (S on the hero screen):* four weapons and four armor pieces at full value, restocked every time the
+    hero comes home, better as hero level and deepest floor rise. Bought items go to the stash.
+  - *Bigger pack (P):* +25 kg per step, 8 steps, 400 gold then four times more each step.
+  - *Test:* an hour replayed in one step equals the same hour in 0.3 s steps (the M3 check). Every dungeon type is
+    run 20 times; a new hero does best in the human and barbarian strongholds and worst in the giant stronghold.
+    200 runs now take about 17 hours of game time instead of 122 (level 17, floor 30).
+  - *Still open in M3:* the map picture with dots and regions, region difficulty, a smith screen (repairs are
+    automatic), and gold still piles up late (2 million after 200 runs).
 - **Blocks:** all 93 "N" blocks give a route (140 to 430 m) when tested one by one with B in the view. A rejected
   block must be destroyed at once (`DestroyImmediate`): left until the end of the frame, its colliders end up in
   the next block's navmesh and the hero walks in the void where it used to be.

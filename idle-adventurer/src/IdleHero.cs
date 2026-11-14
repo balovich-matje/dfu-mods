@@ -15,7 +15,7 @@ namespace IdleAdventurer
 {
     public class IdleHeroWindow : DaggerfallPopupWindow
     {
-        const int BtnAct = 1, BtnSell = 2, BtnAuto = 3, BtnBack = 4;
+        const int BtnAct = 1, BtnSell = 2, BtnAuto = 3, BtnBack = 4, BtnShop = 5, BtnPack = 6;
 
         static readonly string[] statNames = { "Strength", "Intelligence", "Willpower", "Agility", "Endurance", "Personality", "Speed", "Luck" };
         static readonly int[] shownSkills = {
@@ -26,6 +26,12 @@ namespace IdleAdventurer
         HeroCanvas canvas;
         int cursor = IdleData.SlotWeapon;       // 0-8 worn slots, 9 and up the stash
         string note = "";
+        bool shopping;                          // the right-hand list shows the shop instead of the stash
+
+        List<DaggerfallUnityItem> Side(IdleWorld w)
+        {
+            return shopping ? w.shop : w.stash;
+        }
 
         public IdleHeroWindow(IUserInterfaceManager uiManager, IUserInterfaceWindow previous)
             : base(uiManager, previous)
@@ -47,12 +53,13 @@ namespace IdleAdventurer
             IdleStore.Save();
         }
 
-        static DaggerfallUnityItem At(IdleWorld w, int cursor)
+        DaggerfallUnityItem At(IdleWorld w, int cursor)
         {
             if (cursor < IdleData.SlotCount)
                 return w.gear[cursor];
             int i = cursor - IdleData.SlotCount;
-            return (i < w.stash.Count) ? w.stash[i] : null;
+            List<DaggerfallUnityItem> side = Side(w);
+            return (i < side.Count) ? side[i] : null;
         }
 
         public override void Update()
@@ -74,28 +81,62 @@ namespace IdleAdventurer
                     cursor = row;
             }
 
+            if (Input.GetKeyDown(KeyCode.S) || click == BtnShop)
+            {
+                shopping = !shopping;
+                note = "";
+                if (cursor >= IdleData.SlotCount)
+                    cursor = IdleData.SlotCount;
+            }
+            if (Input.GetKeyDown(KeyCode.P) || click == BtnPack)
+            {
+                if (s.packLevel >= IdleData.PackLevels)
+                    note = "The pack cannot get any bigger";
+                else if (IdleSim.BuyPack(w))
+                {
+                    note = "Bigger pack bought: the hero now carries " + (int)IdleSim.Capacity(s) + " kg";
+                    DaggerfallUI.Instance.PlayOneShot(SoundClips.GoldPieces);
+                    IdleStore.Save();
+                }
+                else
+                    note = "A bigger pack costs " + IdleData.PackCost(s.packLevel) + " gold";
+            }
+            List<DaggerfallUnityItem> side = Side(w);
+
             // Arrow keys: up and down inside a list, left and right between worn gear and the stash.
             bool inStash = cursor >= IdleData.SlotCount;
             if (Input.GetKeyDown(KeyCode.DownArrow))
                 cursor++;
             if (Input.GetKeyDown(KeyCode.UpArrow))
                 cursor--;
-            if (Input.GetKeyDown(KeyCode.RightArrow) && !inStash && w.stash.Count > 0)
-                cursor = IdleData.SlotCount + Mathf.Min(cursor, w.stash.Count - 1);
+            if (Input.GetKeyDown(KeyCode.RightArrow) && !inStash && side.Count > 0)
+                cursor = IdleData.SlotCount + Mathf.Min(cursor, side.Count - 1);
             else if (Input.GetKeyDown(KeyCode.LeftArrow) && inStash)
                 cursor = Mathf.Min(cursor - IdleData.SlotCount, IdleData.SlotCount - 1);
             else if (inStash)
-                cursor = Mathf.Clamp(cursor, IdleData.SlotCount, IdleData.SlotCount + Mathf.Max(0, w.stash.Count - 1));
+                cursor = Mathf.Clamp(cursor, IdleData.SlotCount, IdleData.SlotCount + Mathf.Max(0, side.Count - 1));
             else
                 cursor = Mathf.Clamp(cursor, 0, IdleData.SlotCount - 1);
-            if (cursor >= IdleData.SlotCount && w.stash.Count == 0)
+            if (cursor >= IdleData.SlotCount && side.Count == 0)
                 cursor = IdleData.SlotCount - 1;
             inStash = cursor >= IdleData.SlotCount;
 
             DaggerfallUnityItem item = At(w, cursor);
             if ((Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter) || click == BtnAct) && item != null)
             {
-                if (inStash)
+                if (inStash && shopping)
+                {
+                    if (w.stash.Count >= IdleData.StashSize)
+                        note = "The stash is full. Sell something first.";
+                    else if (IdleSim.Buy(w, cursor - IdleData.SlotCount))
+                    {
+                        note = "Bought " + item.LongName + ". It is in the stash.";
+                        DaggerfallUI.Instance.PlayOneShot(SoundClips.GoldPieces);
+                    }
+                    else
+                        note = "Not enough gold: " + item.LongName + " costs " + IdleSim.ShopPrice(item);
+                }
+                else if (inStash)
                 {
                     if (IdleSim.EquipFromStash(w, cursor - IdleData.SlotCount))
                     {
@@ -113,7 +154,7 @@ namespace IdleAdventurer
                 }
                 IdleStore.Save();
             }
-            if ((Input.GetKeyDown(KeyCode.X) || click == BtnSell) && item != null && inStash)
+            if ((Input.GetKeyDown(KeyCode.X) || click == BtnSell) && item != null && inStash && !shopping)
             {
                 int gold = IdleSim.SellFromStash(w, cursor - IdleData.SlotCount);
                 note = "Sold " + item.LongName + " for " + gold + " gold";
@@ -310,6 +351,8 @@ namespace IdleAdventurer
                 int armor = 0;
                 for (int part = 0; part < 7; part++)
                     armor += (100 - IdleSim.ArmorAt(w, part)) / 5;
+                IdleUi.Text("Pack " + (int)IdleSim.CarriedWeight(w) + " of " + (int)IdleSim.Capacity(s) + " kg", col1, y, sc * 0.9f, IdleUi.White);
+                y += line * 0.92f;
                 IdleUi.Text("Armor " + armor + "    Attack every " + (IdleData.AttackInterval(s.stats[IdleData.StatSpeed]) / 10f).ToString("0.0") + " s",
                     col1, y, sc * 0.9f, IdleUi.White);
 
@@ -329,7 +372,9 @@ namespace IdleAdventurer
                 y += line * 0.6f;
 
                 // ---- the selected item
-                DaggerfallUnityItem item = At(w, cursor);
+                DaggerfallUnityItem item = Owner.At(w, cursor);
+                bool shopping = Owner.shopping;
+                List<DaggerfallUnityItem> side = Owner.Side(w);
                 Rect card = new Rect(col2, y, col2W, bottom - line * 0.5f - y);
                 IdleUi.Box(card, new Color(1f, 1f, 1f, 0.03f));
                 float cx = card.x + line * 0.5f;
@@ -375,36 +420,52 @@ namespace IdleAdventurer
                         IdleUi.Text(text, cx, cy, sc, IdleUi.White);
                         cy += line;
                     }
-                    IdleUi.Text("Condition " + Condition(item) + "%    Weight " + item.weightInKg.ToString("0.#") + " kg    Sells for " + IdleSim.SalePrice(item),
+                    IdleUi.Text("Condition " + Condition(item) + "%    Weight " + item.weightInKg.ToString("0.#") + " kg    "
+                        + ((inStash && shopping) ? "Costs " + IdleSim.ShopPrice(item) : "Sells for " + IdleSim.SalePrice(item)),
                         cx, cy, sc * 0.9f, IdleUi.Muted);
                     cy += line;
                     if (inStash && slot >= 0 && IdleSim.Works(item) && IdleSim.IsUpgrade(w, item, slot))
                         IdleUi.Text("Better than what is worn", cx, cy, sc, IdleUi.Good);
                 }
 
-                // ---- the stash
+                // ---- the stash, or the shop
                 y = top;
-                IdleUi.Text("Stash " + w.stash.Count + "/" + IdleData.StashSize, col3, y, sc * 1.1f, IdleUi.Gold);
+                IdleUi.Text(shopping ? "Shop" : "Stash " + w.stash.Count + "/" + IdleData.StashSize, col3, y, sc * 1.1f, IdleUi.Gold);
                 y += line * 1.4f;
                 float stashTall = Mathf.Floor(Mathf.Min(rowTall, (bottom - line * 0.5f - y) / IdleData.StashSize));
                 float stashScale = IdleUi.Scale(stashTall / 1.15f);
-                if (w.stash.Count == 0)
-                    IdleUi.Text("Spare weapons and armor the hero brings back are kept here.", col3, y, sc * 0.85f, IdleUi.Muted);
-                for (int i = 0; i < w.stash.Count; i++)
+                if (side.Count == 0)
+                    IdleUi.Text(shopping ? "Sold out. New stock arrives when the hero comes home." : "Spare weapons and armor the hero brings back are kept here.",
+                        col3, y, sc * 0.85f, IdleUi.Muted);
+                for (int i = 0; i < side.Count; i++)
                 {
-                    DaggerfallUnityItem spare = w.stash[i];
+                    DaggerfallUnityItem spare = side[i];
                     int slot = IdleSim.SlotFor(spare);
                     bool better = slot >= 0 && IdleSim.Works(spare) && IdleSim.IsUpgrade(w, spare, slot);
-                    Row(IdleData.SlotCount + i, spare, null, new Rect(col3, y, col3W, stashTall), stashScale, cursor == IdleData.SlotCount + i, better);
+                    Rect place = new Rect(col3, y, col3W, stashTall);
+                    Row(IdleData.SlotCount + i, spare, null, place, stashScale, cursor == IdleData.SlotCount + i, better);
+                    if (shopping)
+                    {
+                        // The price, between the name and the condition.
+                        string price = IdleSim.ShopPrice(spare) + " g";
+                        IdleUi.Text(price, place.xMax - place.height * 5.2f - IdleUi.Width(price, stashScale * 0.85f), place.y + (place.height - place.height * 0.74f) / 2f,
+                            stashScale * 0.85f, (IdleSim.ShopPrice(spare) <= s.gold) ? IdleUi.Gold : IdleUi.Bad);
+                    }
                     y += stashTall;
                 }
+                if (shopping && side.Count > 0)
+                    IdleUi.Text("New stock every time the hero comes home.", col3, y + line * 0.5f, sc * 0.85f, IdleUi.Muted);
 
                 // ---- buttons and the last message
                 float gap = Mathf.Round(line * 0.3f);
                 float bx = col1;
                 Buttons.Begin();
-                bx += Buttons.Add(BtnAct, (cursor >= IdleData.SlotCount) ? "Equip (Enter)" : "Take off (Enter)", bx, bottom, tall, false) + gap;
-                bx += Buttons.Add(BtnSell, "Sell (X)", bx, bottom, tall, false) + gap;
+                bx += Buttons.Add(BtnAct, (cursor < IdleData.SlotCount) ? "Take off (Enter)" : shopping ? "Buy (Enter)" : "Equip (Enter)", bx, bottom, tall, false) + gap;
+                if (!shopping)
+                    bx += Buttons.Add(BtnSell, "Sell (X)", bx, bottom, tall, false) + gap;
+                bx += Buttons.Add(BtnShop, shopping ? "Stash (S)" : "Shop (S)", bx, bottom, tall, false) + gap;
+                if (s.packLevel < IdleData.PackLevels)
+                    bx += Buttons.Add(BtnPack, "Bigger pack " + IdleData.PackCost(s.packLevel) + " g (P)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnAuto, "Auto-equip (A)", bx, bottom, tall, s.autoEquip != 0) + gap;
                 bx += Buttons.Add(BtnBack, "Back (Esc)", bx, bottom, tall, false) + gap * 3f;
                 IdleUi.Text(Owner.note, bx, bottom + (tall - line * 0.74f) / 2f, sc, IdleUi.White);
