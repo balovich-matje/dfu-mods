@@ -23,6 +23,13 @@ Status: M0 (spike) and M1 (simulation core, balance pass) are done. Decisions al
   walls. An enemy is a flat sprite standing in the world; the weapon is the game's own flat image over the view.
   Doors are simply not created. Not done yet: joining several blocks, the game's dungeon texture sets, enemy
   sprites at the game's own scale, weapon image offsets, lifts and water (blocks that need them are to be avoided).
+- **M2 so far (`src/IdleView.cs`):** the expedition view is driven by the simulation. One floor is one dungeon
+  block (a random "N" block picked from the expedition's seed, with a random classic texture set); blocks whose
+  longest route is under 80 m are skipped. The camera's place on the route comes from the time walked on the floor
+  (3 m/s, back and forth), so a view can be opened at any moment. Fights stand the enemy 2.3 m ahead at the game's
+  own sprite size; hits, misses and damage come from simulation events. Speed 1x/4x/16x, a "call home" order, and
+  mouse buttons in the hub and the view (keys still work). Still to do for M2: hero screen with equipping (needs a
+  stash, since unequipped loot is sold on return today), enemy death and hurt frames, sounds, a fade between floors.
 - **M1 as built:** orc stronghold only, generic warrior hero, melee only. Orders so far: target floor, retreat
   below 35% health after a fight, flee below 25% during one, auto-repeat, go one floor deeper after a clear.
 - **M1 balance (test with T in the hub, 40 heroes):** first run on floor 1: 60% clear, 35% retreat, 5% die. First

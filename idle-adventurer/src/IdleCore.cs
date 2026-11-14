@@ -114,6 +114,170 @@ namespace IdleAdventurer
         }
     }
 
+    // Runs the simulation in real time for whichever screen is open.
+    public static class IdleClock
+    {
+        public static int Speed = 1;
+        static float carry;
+        static float sinceSave;
+
+        public static void NextSpeed()
+        {
+            Speed = (Speed == 1) ? 4 : (Speed == 4) ? 16 : 1;
+        }
+
+        public static void Tick()
+        {
+            IdleWorld w = IdleStore.W;
+            if (w == null)
+                return;
+            carry += Mathf.Min(0.25f, Time.unscaledDeltaTime) * IdleData.TicksPerSecond * Speed;
+            int ticks = (int)carry;
+            if (ticks > 0)
+            {
+                carry -= ticks;
+                IdleSim.Advance(w, ticks);
+            }
+            sinceSave += Time.unscaledDeltaTime;
+            if (sinceSave > 30f)
+            {
+                sinceSave = 0f;
+                IdleStore.Save();
+            }
+        }
+    }
+
+    // Drawing helpers shared by the mode's screens. Everything is in screen pixels.
+    public static class IdleUi
+    {
+        public static readonly Color Fill = new Color(0.06f, 0.055f, 0.05f, 0.985f);
+        public static readonly Color Glass = new Color(0.04f, 0.035f, 0.03f, 0.72f);
+        public static readonly Color Line = new Color(0.72f, 0.58f, 0.18f, 1f);
+        public static readonly Color White = new Color(0.94f, 0.93f, 0.9f, 1f);
+        public static readonly Color Muted = new Color(0.62f, 0.6f, 0.55f, 1f);
+        public static readonly Color Good = new Color(0.44f, 0.83f, 0.44f, 1f);
+        public static readonly Color Bad = new Color(1f, 0.45f, 0.4f, 1f);
+        public static readonly Color Blue = new Color(0.55f, 0.75f, 1f, 1f);
+
+        public static Color Gold
+        {
+            get { return DaggerfallUI.DaggerfallDefaultTextColor; }
+        }
+
+        // Text scale for a line of the given pixel height.
+        public static float Scale(float lineHeight)
+        {
+            return lineHeight * 0.74f / DaggerfallUI.DefaultFont.GlyphHeight;
+        }
+
+        public static float Width(string s, float scale)
+        {
+            return DaggerfallUI.DefaultFont.CalculateTextWidth(s, Vector2.one) * scale;
+        }
+
+        public static void Box(Rect r, Color c)
+        {
+            DaggerfallUI.DrawTexture(r, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, c);
+        }
+
+        public static void Frame(Rect r, Color fill)
+        {
+            Box(r, fill);
+            Box(new Rect(r.x, r.y, r.width, 2f), Line);
+            Box(new Rect(r.x, r.yMax - 2f, r.width, 2f), Line);
+            Box(new Rect(r.x, r.y, 2f, r.height), Line);
+            Box(new Rect(r.xMax - 2f, r.y, 2f, r.height), Line);
+        }
+
+        public static void Text(string s, float x, float y, float scale, Color c)
+        {
+            float o = Mathf.Max(1f, Mathf.Round(scale * 0.5f));
+            DaggerfallUI.DefaultFont.DrawText(s, new Vector2(Mathf.Round(x), Mathf.Round(y)), new Vector2(scale, scale), c, Color.black, new Vector2(o, o));
+        }
+
+        public static void Centred(string s, float centreX, float y, float scale, Color c)
+        {
+            Text(s, centreX - Width(s, scale) / 2f, y, scale, c);
+        }
+
+        public static void Bar(Rect r, float part, Color c)
+        {
+            Box(r, new Color(0f, 0f, 0f, 0.55f));
+            Box(r, new Color(1f, 1f, 1f, 0.1f));
+            Box(new Rect(r.x, r.y, r.width * Mathf.Clamp01(part), r.height), c);
+        }
+
+        public static Vector2 Mouse
+        {
+            get { return new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y); }
+        }
+
+        public static Color EventColor(int type)
+        {
+            switch (type)
+            {
+                case IdleData.EvHeroHit:
+                case IdleData.EvKill:
+                case IdleData.EvLevel:
+                case IdleData.EvSkill:
+                    return Good;
+                case IdleData.EvEnemyHit:
+                case IdleData.EvDied:
+                    return Bad;
+                case IdleData.EvLoot:
+                    return Blue;
+                case IdleData.EvHeroMiss:
+                case IdleData.EvEnemyMiss:
+                    return Muted;
+                case IdleData.EvFight:
+                case IdleData.EvFloor:
+                case IdleData.EvRetreat:
+                case IdleData.EvHome:
+                    return Gold;
+            }
+            return White;
+        }
+    }
+
+    // A row of clickable buttons. They are drawn (and their places remembered) during Draw, and the window asks in
+    // Update which one was clicked.
+    public class IdleButtons
+    {
+        readonly System.Collections.Generic.List<Rect> places = new System.Collections.Generic.List<Rect>();
+        readonly System.Collections.Generic.List<int> ids = new System.Collections.Generic.List<int>();
+
+        public void Begin()
+        {
+            places.Clear();
+            ids.Clear();
+        }
+
+        // Draws a button at x, y and returns its width.
+        public float Add(int id, string label, float x, float y, float height, bool lit)
+        {
+            float scale = IdleUi.Scale(height * 0.62f);
+            float width = Mathf.Round(IdleUi.Width(label, scale) + height * 0.9f);
+            Rect r = new Rect(Mathf.Round(x), Mathf.Round(y), width, Mathf.Round(height));
+            bool hover = r.Contains(IdleUi.Mouse);
+            IdleUi.Frame(r, hover ? new Color(0.2f, 0.16f, 0.08f, 0.95f) : new Color(0.09f, 0.08f, 0.065f, 0.92f));
+            IdleUi.Centred(label, r.x + r.width / 2f, r.y + (r.height - height * 0.62f) / 2f, scale, lit ? IdleUi.Good : IdleUi.Gold);
+            places.Add(r);
+            ids.Add(id);
+            return width;
+        }
+
+        public int Clicked()
+        {
+            if (!Input.GetMouseButtonDown(0))
+                return -1;
+            Vector2 m = IdleUi.Mouse;
+            for (int i = 0; i < places.Count; i++)
+                if (places[i].Contains(m))
+                    return ids[i];
+            return -1;
+        }
+    }
+
     // ---------------------------------------------------------------------------------------
     // The hub. Milestone 1: a text view of the simulation, driven by keys.
     // ---------------------------------------------------------------------------------------
@@ -129,9 +293,6 @@ namespace IdleAdventurer
         static readonly Color Blue = new Color(0.55f, 0.75f, 1f, 1f);
 
         HubCanvas canvas;
-        float carry;
-        float sinceSave;
-        int speed = 1;
 
         public IdleHubWindow(IUserInterfaceManager uiManager, IUserInterfaceWindow previous)
             : base(uiManager, previous)
@@ -193,29 +354,39 @@ namespace IdleAdventurer
             if (canvas == null || IdleStore.W == null)
                 return;
             canvas.Size = new Vector2(Screen.width, Screen.height);
-            canvas.Speed = speed;
             IdleWorld w = IdleStore.W;
             IdleSave s = w.s;
             bool shift = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+            int click = canvas.Buttons.Clicked();
+            if (click >= 0)
+                DaggerfallUI.Instance.PlayOneShot(SoundClips.ButtonClick);
 
-            if (Input.GetKeyDown(KeyCode.G))
-                IdleSim.StartExpedition(w);
-            if (Input.GetKeyDown(KeyCode.F))
-                speed = (speed == 1) ? 4 : (speed == 4) ? 20 : 1;
-            if (Input.GetKeyDown(KeyCode.R))
-                s.autoRepeat = (s.autoRepeat == 0) ? 1 : 0;
-            if (Input.GetKeyDown(KeyCode.D))
-                s.autoDeeper = (s.autoDeeper == 0) ? 1 : 0;
-            if (Input.GetKeyDown(KeyCode.Equals) || Input.GetKeyDown(KeyCode.KeypadPlus))
-                s.targetFloor++;
-            if (Input.GetKeyDown(KeyCode.Minus) || Input.GetKeyDown(KeyCode.KeypadMinus))
-                s.targetFloor = Mathf.Max(1, s.targetFloor - 1);
-            if (Input.GetKeyDown(KeyCode.T))
-                canvas.Report = IdleTest.Run();
-            if (Input.GetKeyDown(KeyCode.V))
+            if (Input.GetKeyDown(KeyCode.G) || click == HubCanvas.BtnGo)
             {
-                IdleStore.Save();
-                DaggerfallUI.UIManager.PushWindow(new IdleRailsWindow(DaggerfallUI.UIManager, this));
+                IdleSim.StartExpedition(w);
+                OpenView();
+                return;
+            }
+            if (Input.GetKeyDown(KeyCode.V) || click == HubCanvas.BtnView)
+            {
+                OpenView();
+                return;
+            }
+            if (Input.GetKeyDown(KeyCode.F) || click == HubCanvas.BtnSpeed)
+                IdleClock.NextSpeed();
+            if (Input.GetKeyDown(KeyCode.R) || click == HubCanvas.BtnRepeat)
+                s.autoRepeat = (s.autoRepeat == 0) ? 1 : 0;
+            if (Input.GetKeyDown(KeyCode.D) || click == HubCanvas.BtnDeeper)
+                s.autoDeeper = (s.autoDeeper == 0) ? 1 : 0;
+            if (Input.GetKeyDown(KeyCode.Equals) || Input.GetKeyDown(KeyCode.KeypadPlus) || click == HubCanvas.BtnMore)
+                s.targetFloor++;
+            if (Input.GetKeyDown(KeyCode.Minus) || Input.GetKeyDown(KeyCode.KeypadMinus) || click == HubCanvas.BtnLess)
+                s.targetFloor = Mathf.Max(1, s.targetFloor - 1);
+            if (Input.GetKeyDown(KeyCode.T) || click == HubCanvas.BtnTest)
+                canvas.Report = IdleTest.Run();
+            if (click == HubCanvas.BtnBack)
+            {
+                CloseWindow();
                 return;
             }
             if (Input.GetKeyDown(KeyCode.N) && shift)
@@ -227,20 +398,13 @@ namespace IdleAdventurer
                 return;
             }
 
-            carry += Time.unscaledDeltaTime * IdleData.TicksPerSecond * speed;
-            int ticks = (int)carry;
-            if (ticks > 0)
-            {
-                carry -= ticks;
-                IdleSim.Advance(w, Mathf.Min(ticks, 6000));
-            }
+            IdleClock.Tick();
+        }
 
-            sinceSave += Time.unscaledDeltaTime;
-            if (sinceSave > 30f)
-            {
-                sinceSave = 0f;
-                IdleStore.Save();
-            }
+        void OpenView()
+        {
+            IdleStore.Save();
+            DaggerfallUI.UIManager.PushWindow(new IdleViewWindow(DaggerfallUI.UIManager, this));
         }
 
         public override void OnPop()
@@ -251,8 +415,9 @@ namespace IdleAdventurer
 
         class HubCanvas : BaseScreenComponent
         {
-            public int Speed = 1;
+            public const int BtnGo = 1, BtnView = 2, BtnRepeat = 3, BtnDeeper = 4, BtnLess = 5, BtnMore = 6, BtnSpeed = 7, BtnTest = 8, BtnBack = 9;
             public string[] Report;
+            public readonly IdleButtons Buttons = new IdleButtons();
 
             static void Box(Rect r, Color c)
             {
@@ -384,16 +549,29 @@ namespace IdleAdventurer
                 y += line * 0.6f;
 
                 Text("Orders: target floor " + s.targetFloor + ", retreat below " + s.retreatPercent + "% health, auto-repeat "
-                    + (s.autoRepeat != 0 ? "on" : "off") + ", go deeper after a clear " + (s.autoDeeper != 0 ? "on" : "off") + ", speed " + Speed + "x",
+                    + (s.autoRepeat != 0 ? "on" : "off") + ", go deeper after a clear " + (s.autoDeeper != 0 ? "on" : "off") + ", speed " + IdleClock.Speed + "x",
                     x, y, sc * 0.9f, Muted);
                 y += line;
                 Text("Runs " + s.expeditions + " (cleared " + s.cleared + ", retreated " + s.retreats + ", died " + s.deaths + ")    Kills " + s.kills
                     + "    Deepest floor " + s.deepestFloor, x, y, sc * 0.9f, Muted);
                 y += line * 1.3f;
 
-                float bottom = r.yMax - pad - line;
-                Text("G go    R auto-repeat    D go deeper    +/- target floor    F speed    T balance test    V rails spike    Shift+N new hero    Esc back",
-                    x, bottom, sc * 0.85f, Muted);
+                float tall = Mathf.Round(line * 1.25f);
+                float bottom = r.yMax - pad - tall;
+                float gap = Mathf.Round(line * 0.3f);
+                float bx = x;
+                Buttons.Begin();
+                bx += Buttons.Add(BtnGo, (s.phase == IdleData.PhaseTown) ? "Send out (G)" : "Watch (V)", bx, bottom, tall, false) + gap;
+                if (s.phase == IdleData.PhaseTown)
+                    bx += Buttons.Add(BtnView, "View (V)", bx, bottom, tall, false) + gap;
+                bx += Buttons.Add(BtnRepeat, "Auto-repeat (R)", bx, bottom, tall, s.autoRepeat != 0) + gap;
+                bx += Buttons.Add(BtnDeeper, "Go deeper (D)", bx, bottom, tall, s.autoDeeper != 0) + gap;
+                bx += Buttons.Add(BtnLess, "Floor -", bx, bottom, tall, false) + gap;
+                bx += Buttons.Add(BtnMore, "Floor +", bx, bottom, tall, false) + gap;
+                bx += Buttons.Add(BtnSpeed, "Speed " + IdleClock.Speed + "x (F)", bx, bottom, tall, false) + gap;
+                bx += Buttons.Add(BtnTest, "Test (T)", bx, bottom, tall, false) + gap;
+                Buttons.Add(BtnBack, "Back (Esc)", bx, bottom, tall, false);
+                bottom -= line * 0.4f;
 
                 if (Report != null)
                 {

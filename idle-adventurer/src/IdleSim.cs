@@ -114,6 +114,10 @@ namespace IdleAdventurer
 
         public int phase;
         public int phaseLeft;
+        public int phaseTotal;              // length of the current timed phase, for progress bars
+        public int dungeonSeed;             // picks the layout of each floor in the first-person view
+        public int floorTicks;              // time spent walking on this floor; the view turns it into a position
+        public int recall;                  // 1 when the player has ordered the hero home
         public int dungeonType = IdleData.DefaultDungeonType;
         public int floor;
         public int roomsLeft;
@@ -153,6 +157,7 @@ namespace IdleAdventurer
     public class IdleEvent
     {
         public int type;
+        public int value;
         public string text;
     }
 
@@ -173,14 +178,17 @@ namespace IdleAdventurer
         public List<DaggerfallUnityItem> haul = new List<DaggerfallUnityItem>();
         public List<IdleEvent> events = new List<IdleEvent>();
         public bool record;
+        public long eventTotal;             // events ever emitted, so a viewer can tell which ones are new
         public int stopAfter;               // test runs: stop in town once this many expeditions are done
 
-        public void Emit(int type, string text)
+        public void Emit(int type, string text, int value = 0)
         {
             IdleEvent e = new IdleEvent();
             e.type = type;
             e.text = text;
+            e.value = value;
             events.Add(e);
+            eventTotal++;
             if (events.Count > 400)
                 events.RemoveRange(0, 200);
         }
@@ -513,7 +521,11 @@ namespace IdleAdventurer
                 return;
             s.phase = IdleData.PhaseOut;
             s.phaseLeft = IdleData.TravelSeconds * IdleData.TicksPerSecond;
+            s.phaseTotal = s.phaseLeft;
+            s.dungeonSeed = Next(s);
             s.floor = 0;
+            s.floorTicks = 0;
+            s.recall = 0;
             s.carried = 0;
             s.runKills = 0;
             s.runGold = 0;
@@ -555,7 +567,10 @@ namespace IdleAdventurer
                     s.clock += step;
                     ticks -= step;
                     if (s.phase == IdleData.PhaseExplore)
+                    {
                         Rest(s, step);
+                        s.floorTicks += step;
+                    }
                     if (s.phaseLeft <= 0)
                         PhaseEnds(w);
                 }
@@ -579,6 +594,7 @@ namespace IdleAdventurer
         {
             s.phase = IdleData.PhaseExplore;
             s.phaseLeft = Range(s, IdleData.ExploreMinSeconds, IdleData.ExploreMaxSeconds) * IdleData.TicksPerSecond;
+            s.phaseTotal = s.phaseLeft;
         }
 
         static void PhaseEnds(IdleWorld w)
@@ -587,6 +603,7 @@ namespace IdleAdventurer
             if (s.phase == IdleData.PhaseOut)
             {
                 s.floor = 1;
+                s.floorTicks = 0;
                 s.roomsLeft = IdleData.RoomsOnFloor(1);
                 Explore(s);
                 if (w.record)
@@ -595,7 +612,12 @@ namespace IdleAdventurer
             else if (s.phase == IdleData.PhaseExplore)
             {
                 Tally(w, (int)DFCareer.Skills.Medical);
-                if (s.roomsLeft > 0)
+                if (s.recall != 0)
+                {
+                    s.retreats++;
+                    GoHome(w, "Called back from floor " + s.floor);
+                }
+                else if (s.roomsLeft > 0)
                 {
                     StartFight(w);
                 }
@@ -609,6 +631,7 @@ namespace IdleAdventurer
                 else
                 {
                     s.floor++;
+                    s.floorTicks = 0;
                     s.roomsLeft = IdleData.RoomsOnFloor(s.floor);
                     Explore(s);
                     if (w.record)
@@ -626,6 +649,7 @@ namespace IdleAdventurer
             IdleSave s = w.s;
             s.phase = IdleData.PhaseBack;
             s.phaseLeft = IdleData.TravelSeconds * IdleData.TicksPerSecond;
+            s.phaseTotal = s.phaseLeft;
             s.enemyId = -1;
             if (w.record)
                 w.Emit(IdleData.EvRetreat, why);
@@ -698,7 +722,7 @@ namespace IdleAdventurer
             s.heroTimer = IdleData.AttackInterval(s.stats[IdleData.StatSpeed]);
 
             // Close to death the hero spends the turn trying to get away. A failed try costs the attack.
-            if (s.health * 100 < s.maxHealth * s.fleePercent)
+            if (s.recall != 0 || s.health * 100 < s.maxHealth * s.fleePercent)
             {
                 int enemySpeed = (e.career != null) ? e.career.Speed : 50;
                 int escape = Mathf.Clamp(50 + (s.stats[IdleData.StatSpeed] - enemySpeed) / 2 + s.stats[IdleData.StatLuck] / 10, 15, 90);
@@ -706,7 +730,7 @@ namespace IdleAdventurer
                 {
                     s.retreats++;
                     s.fled++;
-                    if (s.autoDeeper != 0 && s.targetFloor > 1)
+                    if (s.recall == 0 && s.autoDeeper != 0 && s.targetFloor > 1)
                         s.targetFloor--;
                     GoHome(w, s.heroName + " flees from the " + e.name);
                 }
@@ -771,7 +795,7 @@ namespace IdleAdventurer
             s.enemyHealth -= damage;
             if (w.record)
                 w.Emit(IdleData.EvHeroHit, s.heroName + " hits the " + e.name + " for " + damage
-                    + ((weapon == null && w.gear[IdleData.SlotWeapon] != null) ? " with bare hands" : ""));
+                    + ((weapon == null && w.gear[IdleData.SlotWeapon] != null) ? " with bare hands" : ""), damage);
             if (s.enemyHealth <= 0)
                 Kill(w, e);
         }
@@ -830,7 +854,7 @@ namespace IdleAdventurer
 
             s.health -= damage;
             if (w.record)
-                w.Emit(IdleData.EvEnemyHit, "The " + e.name + " hits for " + damage + " (" + Mathf.Max(0, s.health) + "/" + s.maxHealth + ")");
+                w.Emit(IdleData.EvEnemyHit, "The " + e.name + " hits for " + damage + " (" + Mathf.Max(0, s.health) + "/" + s.maxHealth + ")", damage);
             if (s.health <= 0)
                 Die(w, e);
         }
@@ -992,6 +1016,7 @@ namespace IdleAdventurer
             s.expeditions++;
             s.phase = IdleData.PhaseTown;
             s.phaseLeft = 0;
+            s.recall = 0;
             s.health = s.maxHealth;
             s.healCarry = 0;
 

@@ -22,13 +22,13 @@ MOD_TITLE = "Idle Adventurer"
 SOURCE_GROUPS = [
     ["IdleCore.cs"],
     ["IdleSim.cs"],
-    ["IdleRails.cs"],
+    ["IdleView.cs"],
 ]
 SOURCES = [g[0] for g in SOURCE_GROUPS]
 
 MANIFEST = {
     "ModTitle": MOD_TITLE,
-    "ModVersion": "0.2.0",
+    "ModVersion": "0.3.0",
     "ModAuthor": "balovich-matje",
     "DFUnity_Version": "1.0.0",
     "ModDescription": "An idle side game mode: your hero explores and fights alone, you manage gear and supplies.",
