@@ -22,6 +22,7 @@ MOD_TITLE = "Idle Adventurer"
 SOURCE_GROUPS = [
     ["IdleCore.cs"],
     ["IdleSim.cs"],
+    ["IdleRails.cs"],
 ]
 SOURCES = [g[0] for g in SOURCE_GROUPS]
 

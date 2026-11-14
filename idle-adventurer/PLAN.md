@@ -16,6 +16,13 @@ Status: M0 (spike) and M1 (simulation core, balance pass) are done. Decisions al
   source of truth; the 3D view replays its events. The over-the-shoulder sprite view is kept as a possible later
   option. A spike before M2 has to prove two things: rendering a block from the main menu with no game loaded, and
   getting route data per block (a walk-and-record tool is the sure way; DFU has no navigation mesh of its own).
+- **Rails spike (done, `src/IdleRails.cs`, key V in the hub):** both unknowns passed. A real block (Privateer's
+  Hold, S0000999.RDB) is built from the main menu with no game loaded in about 0.45 s, drawn by our own camera into
+  a texture. Unity's navigation module is in DFU's build: a navmesh is baked at run time from the block's colliders
+  and gives a 181 m route in about 0.13 s, so no hand-recorded routes are needed. The route is re-centred away from
+  walls. An enemy is a flat sprite standing in the world; the weapon is the game's own flat image over the view.
+  Doors are simply not created. Not done yet: joining several blocks, the game's dungeon texture sets, enemy
+  sprites at the game's own scale, weapon image offsets, lifts and water (blocks that need them are to be avoided).
 - **M1 as built:** orc stronghold only, generic warrior hero, melee only. Orders so far: target floor, retreat
   below 35% health after a fight, flee below 25% during one, auto-repeat, go one floor deeper after a clear.
 - **M1 balance (test with T in the hub, 40 heroes):** first run on floor 1: 60% clear, 35% retreat, 5% die. First

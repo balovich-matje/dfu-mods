@@ -212,6 +212,12 @@ namespace IdleAdventurer
                 s.targetFloor = Mathf.Max(1, s.targetFloor - 1);
             if (Input.GetKeyDown(KeyCode.T))
                 canvas.Report = IdleTest.Run();
+            if (Input.GetKeyDown(KeyCode.V))
+            {
+                IdleStore.Save();
+                DaggerfallUI.UIManager.PushWindow(new IdleRailsWindow(DaggerfallUI.UIManager, this));
+                return;
+            }
             if (Input.GetKeyDown(KeyCode.N) && shift)
             {
                 IdleStore.NewHero();
@@ -386,7 +392,7 @@ namespace IdleAdventurer
                 y += line * 1.3f;
 
                 float bottom = r.yMax - pad - line;
-                Text("G go    R auto-repeat    D go deeper    +/- target floor    F speed    T balance test    Shift+N new hero    Esc back",
+                Text("G go    R auto-repeat    D go deeper    +/- target floor    F speed    T balance test    V rails spike    Shift+N new hero    Esc back",
                     x, bottom, sc * 0.85f, Muted);
 
                 if (Report != null)
