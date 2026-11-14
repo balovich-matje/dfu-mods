@@ -120,7 +120,7 @@ namespace IdleAdventurer
 
     public class IdleHubWindow : DaggerfallPopupWindow
     {
-        static readonly Color Fill = new Color(0.06f, 0.055f, 0.05f, 0.94f);
+        static readonly Color Fill = new Color(0.06f, 0.055f, 0.05f, 0.985f);
         static readonly Color Line = new Color(0.72f, 0.58f, 0.18f, 1f);
         static readonly Color White = new Color(0.94f, 0.93f, 0.9f, 1f);
         static readonly Color Muted = new Color(0.62f, 0.6f, 0.55f, 1f);
@@ -435,6 +435,22 @@ namespace IdleAdventurer
                 }
                 lines.Add("New hero, first run, floor 1 only: " + clearedFirst + " of " + heroes + " cleared it, " + diedFirst + " died, "
                     + (heroes - clearedFirst - diedFirst) + " retreated");
+
+                // The first ten runs of 40 heroes, pushing deeper after each clear.
+                int deaths = 0, levels = 0, floors = 0, gold = 0;
+                long ticks = 0;
+                for (int seed = 1; seed <= heroes; seed++)
+                {
+                    IdleWorld ten = IdleSim.Simulate(seed * 104729, 10, true);
+                    deaths += ten.s.deaths;
+                    levels += ten.s.level;
+                    floors += ten.s.deepestFloor;
+                    gold += ten.s.gold;
+                    ticks += ten.s.clock;
+                }
+                lines.Add("First 10 runs, average of " + heroes + " heroes: " + (deaths / (float)heroes).ToString("0.0") + " deaths, level "
+                    + (levels / (float)heroes).ToString("0.0") + ", deepest floor " + (floors / (float)heroes).ToString("0.0") + ", gold " + (gold / heroes)
+                    + ", " + (ticks / heroes / 600) + " min");
 
                 int[] marks = { 10, 50, 200 };
                 for (int i = 0; i < marks.Length; i++)

@@ -4,7 +4,26 @@ Working title. A side game mode for Daggerfall Unity 1.1.1: one hero goes on exp
 manages gear, spells, supplies and orders between (and during) runs. Separate from normal saves. Progress continues
 while the game is closed, from the system clock.
 
-Status: plan only, nothing implemented. Decisions already made with the user are marked **[decided]**.
+Status: M0 (spike) and M1 (simulation core, balance pass) are done. Decisions already made with the user are marked
+**[decided]**.
+
+## 0. Changes since the first version of this plan
+
+- **Time scale:** one simulation second is one real second at 1x, in fights and out. Travel and exploring are
+  compressed stretches of that same clock, and time away from the game is replayed 1:1 (capped at 12 hours).
+- **Expedition view [decided]:** first person, on rails. We assemble our own dungeons from the game's dungeon blocks
+  and store a route through each block, so the camera never needs to find its way. The simulation stays the single
+  source of truth; the 3D view replays its events. The over-the-shoulder sprite view is kept as a possible later
+  option. A spike before M2 has to prove two things: rendering a block from the main menu with no game loaded, and
+  getting route data per block (a walk-and-record tool is the sure way; DFU has no navigation mesh of its own).
+- **M1 as built:** orc stronghold only, generic warrior hero, melee only. Orders so far: target floor, retreat
+  below 35% health after a fight, flee below 25% during one, auto-repeat, go one floor deeper after a clear.
+- **M1 balance (test with T in the hub, 40 heroes):** first run on floor 1: 60% clear, 35% retreat, 5% die. First
+  ten runs: 0.8 deaths, level 2.7, 26 minutes. 50 runs: level 12, floor 15, about 7 hours. 200 runs: level 25,
+  floor 34, about 130 hours, all Daedric.
+- **Known open balance problems:** gold has nothing to be spent on yet, so it piles up (22 million after 130 hours;
+  loot sells at a quarter of its value). Deep runs replay every floor from 1, so they take over an hour; a
+  checkpoint or "start at floor N" belongs in M3. The carry limit throws away most deep loot.
 
 ## 1. Pillars
 

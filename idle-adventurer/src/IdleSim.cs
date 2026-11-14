@@ -60,10 +60,11 @@ namespace IdleAdventurer
         public const int DeathGoldLossPercent = 10;
         public const int DeathWearPercent = 10;
         public const int OfflineCapSeconds = 12 * 3600;
+        public const int SaleDivisor = 4;               // loot sells for a quarter of its listed value
 
         public static int RoomsOnFloor(int floor)
         {
-            return 3 + floor / 3;
+            return Mathf.Min(6, 3 + floor / 3);
         }
 
         // Seconds between attacks. Speed 50 gives 2.0 s.
@@ -128,6 +129,7 @@ namespace IdleAdventurer
         // Orders.
         public int targetFloor = 2;
         public int retreatPercent = 35;
+        public int fleePercent = 25;        // below this the hero tries to run from a fight in progress
         public int autoRepeat;
         public int autoDeeper = 1;
         public int autoEquip = 1;
@@ -140,6 +142,7 @@ namespace IdleAdventurer
         public int expeditions;
         public int cleared;
         public int retreats;
+        public int fled;
         public int deaths;
         public int kills;
         public int deepestFloor;
@@ -248,6 +251,11 @@ namespace IdleAdventurer
             Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Cuirass, ArmorMaterialTypes.Leather));
             Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Greaves, ArmorMaterialTypes.Leather));
             Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Boots, ArmorMaterialTypes.Leather));
+            Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Helm, ArmorMaterialTypes.Leather));
+            Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Gauntlets, ArmorMaterialTypes.Leather));
+            Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Left_Pauldron, ArmorMaterialTypes.Leather));
+            Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Right_Pauldron, ArmorMaterialTypes.Leather));
+            Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Buckler, ArmorMaterialTypes.Leather));
             return w;
         }
 
@@ -368,7 +376,11 @@ namespace IdleAdventurer
 
         static int Scaled(IdleSave s, int value)
         {
-            return value * (100 + 15 * s.enemyOver) / 100;
+            // Past the end of the encounter table every step makes the enemy 12% tougher, compounding.
+            int steps = Mathf.Min(s.enemyOver, 60);
+            for (int i = 0; i < steps; i++)
+                value = value * 112 / 100 + 1;
+            return value;
         }
 
         // ------------------------------------------------------------------ the hero's numbers
@@ -626,8 +638,8 @@ namespace IdleAdventurer
             if (s.floor > s.deepestFloor)
                 s.deepestFloor = s.floor;
 
-            // Floor 1 rolls from the first three entries; each floor moves the window one step down the table.
-            int index = s.floor - 1 + Range(s, 0, 2);
+            // Floor 1 rolls from the first two entries; each floor moves a three-wide window one step down the table.
+            int index = Mathf.Max(0, s.floor - 2 + Range(s, 0, 2));
             s.enemyOver = Mathf.Max(0, index - (table.Length - 1));
             index = Mathf.Min(index, table.Length - 1);
             s.enemyId = (int)table[index];
@@ -684,6 +696,26 @@ namespace IdleAdventurer
             IdleSave s = w.s;
             EnemyInfo e = Enemy(s.enemyId);
             s.heroTimer = IdleData.AttackInterval(s.stats[IdleData.StatSpeed]);
+
+            // Close to death the hero spends the turn trying to get away. A failed try costs the attack.
+            if (s.health * 100 < s.maxHealth * s.fleePercent)
+            {
+                int enemySpeed = (e.career != null) ? e.career.Speed : 50;
+                int escape = Mathf.Clamp(50 + (s.stats[IdleData.StatSpeed] - enemySpeed) / 2 + s.stats[IdleData.StatLuck] / 10, 15, 90);
+                if (Roll(s, escape))
+                {
+                    s.retreats++;
+                    s.fled++;
+                    if (s.autoDeeper != 0 && s.targetFloor > 1)
+                        s.targetFloor--;
+                    GoHome(w, s.heroName + " flees from the " + e.name);
+                }
+                else if (w.record)
+                {
+                    w.Emit(IdleData.EvHeroMiss, s.heroName + " tries to flee and fails");
+                }
+                return;
+            }
 
             // A weapon that is broken, or too soft a metal for this enemy, is put away and the hero uses fists.
             DaggerfallUnityItem weapon = w.gear[IdleData.SlotWeapon];
@@ -857,7 +889,7 @@ namespace IdleAdventurer
             if (string.IsNullOrEmpty(e.def.LootTableKey))
                 return;
             LootChanceMatrix m = LootTables.GetMatrix(e.def.LootTableKey);
-            int level = Mathf.Max(s.level, s.floor * 2);
+            int level = Mathf.Max(1, (s.level + s.floor + 1) / 2);
             Genders g = (Genders)s.gender;
             Races r = (Races)s.race;
 
@@ -894,18 +926,38 @@ namespace IdleAdventurer
             }
         }
 
+        static float Worth(DaggerfallUnityItem item)
+        {
+            return item.value * item.stackCount / Mathf.Max(0.05f, item.weightInKg * item.stackCount);
+        }
+
+        // When the pack is full the hero keeps whatever is worth most for its weight.
         static void Take(IdleWorld w, DaggerfallUnityItem item)
         {
             IdleSave s = w.s;
             if (item == null)
                 return;
+            float need = item.weightInKg * item.stackCount;
             float room = s.stats[IdleData.StatStrength] * 1.5f - CarriedWeight(w);
-            if (item.weightInKg * item.stackCount > room)
+            while (need > room)
             {
+                int worst = -1;
+                for (int i = 0; i < w.haul.Count; i++)
+                    if (w.haul[i].weightInKg > 0f && (worst < 0 || Worth(w.haul[i]) < Worth(w.haul[worst])))
+                        worst = i;
+                if (worst < 0 || Worth(w.haul[worst]) >= Worth(item))
+                {
+                    s.leftBehind++;
+                    if (w.record)
+                        w.Emit(IdleData.EvLoot, "Too heavy to carry: " + item.LongName);
+                    return;
+                }
+                room += w.haul[worst].weightInKg * w.haul[worst].stackCount;
                 s.leftBehind++;
+                s.runItems--;
                 if (w.record)
-                    w.Emit(IdleData.EvLoot, "Too heavy to carry: " + item.LongName);
-                return;
+                    w.Emit(IdleData.EvLoot, "Dropped " + w.haul[worst].LongName + " to make room");
+                w.haul.RemoveAt(worst);
             }
             w.haul.Add(item);
             s.runItems++;
@@ -959,7 +1011,7 @@ namespace IdleAdventurer
                     item = old;
                 }
                 if (item != null)
-                    sold += Mathf.Max(1, item.value * item.stackCount / 2);
+                    sold += Mathf.Max(1, item.value * item.stackCount / IdleData.SaleDivisor);
             }
             w.haul.Clear();
 
@@ -999,7 +1051,13 @@ namespace IdleAdventurer
                     gear += (gear.Length > 0 ? ", " : "") + w.gear[i].LongName;
             return "level " + s.level + ", health " + s.maxHealth + ", gold " + s.gold + ", runs " + s.expeditions + " (cleared " + s.cleared
                 + ", retreated " + s.retreats + ", died " + s.deaths + "), kills " + s.kills + ", deepest floor " + s.deepestFloor
-                + ", target " + s.targetFloor + ", left behind " + s.leftBehind + ", time " + (s.clock / IdleData.TicksPerSecond / 60) + " min | " + gear;
+                + ", fled " + s.fled + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
+                + (long)(s.goldEarned / Mathf.Max(0.05f, s.clock / 36000f)) + " | " + gear;
+        }
+
+        static string Hours(IdleSave s)
+        {
+            return (s.clock / 36000f).ToString("0.0");
         }
 
         // Runs a fresh hero through a number of expeditions without touching the real save.
