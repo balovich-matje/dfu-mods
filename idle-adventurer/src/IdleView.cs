@@ -24,7 +24,7 @@ namespace IdleAdventurer
         // Far from anything the game itself may have in the scene.
         static readonly Vector3 Origin = new Vector3(4000f, 0f, 4000f);
         const float EyeHeight = 1.55f;
-        const float MinRoute = 80f;
+        const float MinRoute = 60f;
 
         static List<string> blockNames;
         static readonly Dictionary<string, bool> blockWorks = new Dictionary<string, bool>();
@@ -40,6 +40,7 @@ namespace IdleAdventurer
         public string BlockName;
         public float Length;
         public string Problem;
+        public string LastNote = "";
 
         GameObject root;
         GameObject block;
@@ -127,8 +128,13 @@ namespace IdleAdventurer
             if (navAdded)
                 nav.Remove();
             navAdded = false;
+            // At once, not at the end of the frame: several blocks can be tried in one frame, and a block that is
+            // still around would end up in the next one's walkable area.
             if (block != null)
-                UnityEngine.Object.Destroy(block);
+            {
+                block.SetActive(false);
+                UnityEngine.Object.DestroyImmediate(block);
+            }
             block = null;
             route = null;
             HideEnemy();
@@ -159,7 +165,7 @@ namespace IdleAdventurer
             int textures = seed * 31 + 7;
             uint pick = (uint)(seed * 7919 + floor * 104729);
             string tried = "";
-            for (int attempt = 0; attempt < 8 && names.Count > 0; attempt++)
+            for (int attempt = 0; attempt < 16 && names.Count > 0; attempt++)
             {
                 string name = names[(int)((pick + (uint)attempt * 2654435761u) % (uint)names.Count)];
                 bool known;
@@ -178,7 +184,7 @@ namespace IdleAdventurer
                 tried += name + (ok ? " ok " : " no ");
                 if (ok)
                 {
-                    Debug.Log("[Idle] VIEW floor " + floor + ": " + tried + "route " + (int)Length + " m, " + watch.ElapsedMilliseconds + " ms");
+                    Debug.Log("[Idle] VIEW floor " + floor + ": " + tried + "route " + (int)Length + " m, " + LastNote + ", " + watch.ElapsedMilliseconds + " ms");
                     return;
                 }
             }
@@ -265,14 +271,20 @@ namespace IdleAdventurer
             // Walkable spots on a coarse grid. Blocks have separate areas (ledges, sealed rooms), so the route is
             // looked for from a few different spots and the longest one wins.
             List<Vector3> spots = new List<Vector3>();
+            int outside = 0;
             for (float y = bounds.min.y; y <= bounds.max.y; y += 2f)
                 for (float x = bounds.min.x; x <= bounds.max.x; x += 3f)
                     for (float z = bounds.min.z; z <= bounds.max.z; z += 3f)
                     {
                         NavMeshHit spot;
-                        if (NavMesh.SamplePosition(new Vector3(x, y, z), out spot, 1.5f, filter))
+                        if (!NavMesh.SamplePosition(new Vector3(x, y, z), out spot, 1.5f, filter))
+                            continue;
+                        if (Indoors(spot.position))
                             spots.Add(spot.position);
+                        else
+                            outside++;
                     }
+            LastNote = spots.Count + " spots inside, " + outside + " outside";
             if (spots.Count < 2)
                 return false;
 
@@ -303,6 +315,40 @@ namespace IdleAdventurer
                 along[i] = along[i - 1] + Vector3.Distance(route[i - 1], route[i]);
             Length = along[route.Length - 1];
             return true;
+        }
+
+        // Dungeon blocks only have inward-facing walls, so from outside you see straight through them. A starting
+        // spot for the route search must have a ceiling above it and a floor right under it. (Only a rough check:
+        // it is wrong for some points along a route, so it is not used to judge whole routes.)
+        static bool Indoors(Vector3 p)
+        {
+            return Physics.Raycast(p + Vector3.up * 0.3f, Vector3.up, 60f)
+                && Physics.Raycast(p + Vector3.up * 0.3f, Vector3.down, 1.5f);
+        }
+
+        // Debug (key B in the view): tries every block and writes what it found to the log.
+        public void TestBlocks()
+        {
+            List<string> names = Names();
+            int good = 0;
+            for (int i = 0; i < names.Count; i++)
+            {
+                bool ok = false;
+                LastNote = "";
+                try
+                {
+                    ok = Load(names[i], 7);
+                }
+                catch (Exception ex)
+                {
+                    LastNote = ex.Message;
+                }
+                if (ok)
+                    good++;
+                Debug.Log("[Idle] BLOCK " + names[i] + (ok ? " ok " + (int)Length + " m, " : " no, ") + LastNote);
+            }
+            Debug.Log("[Idle] BLOCK " + good + " of " + names.Count + " usable");
+            Unload();
         }
 
         static float PathLength(Vector3[] corners)
@@ -675,8 +721,8 @@ namespace IdleAdventurer
         const float WalkSpeed = 3f;
         const float FightGap = 2.3f;
         const int BtnSpeed = 1, BtnRecall = 2, BtnBack = 3, BtnGo = 4;
-        const float FadeOut = 0.3f;
-        const float FadeIn = 0.5f;
+        const float FadeOut = 0.45f;
+        const float FadeIn = 0.9f;
 
         class Floater
         {
@@ -798,6 +844,11 @@ namespace IdleAdventurer
             {
                 CloseWindow();
                 return;
+            }
+            if (Input.GetKeyDown(KeyCode.B) && scene != null)
+            {
+                scene.TestBlocks();
+                loadedFloor = -1;
             }
 
             // A new floor: the old one fades to black, the new one is built on a dark frame, then it fades in.

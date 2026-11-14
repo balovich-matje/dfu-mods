@@ -33,6 +33,9 @@ Status: M0 (spike) and M1 (simulation core, balance pass) are done. Decisions al
   behind, when a corner is in the way) and the camera tilts towards it. The game's own sounds play for hits,
   misses, enemy barks, kills, gold, level-ups, floor changes and footsteps (fewer at 4x, almost none at 16x).
   Floors fade to black and back. M2 is done apart from a mouse-only run, which cannot be tested in the background.
+- **Blocks:** all 93 "N" blocks give a route (140 to 430 m) when tested one by one with B in the view. A rejected
+  block must be destroyed at once (`DestroyImmediate`): left until the end of the frame, its colliders end up in
+  the next block's navmesh and the hero walks in the void where it used to be.
 - **Item IDs:** the game's item IDs restart at every launch, so the hero's items can share one. Items are therefore
   saved one by one, never through `ItemCollection` (which is keyed by ID and silently dropped the hero's sword).
 - **Hero screen (`src/IdleHero.cs`, key C in the hub):** attributes, combat skills, the nine worn slots, and a stash
