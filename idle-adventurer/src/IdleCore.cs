@@ -234,6 +234,8 @@ namespace IdleAdventurer
                     return Bad;
                 case IdleData.EvLoot:
                     return Blue;
+                case IdleData.EvMine:
+                    return Gold;
                 case IdleData.EvHeroMiss:
                 case IdleData.EvEnemyMiss:
                     return Muted;
@@ -422,6 +424,11 @@ namespace IdleAdventurer
                 DaggerfallUI.UIManager.PushWindow(new IdleSpellsWindow(DaggerfallUI.UIManager, this));
                 return;
             }
+            if (Input.GetKeyDown(KeyCode.B) || click == HubCanvas.BtnForge)
+            {
+                DaggerfallUI.UIManager.PushWindow(new IdleForgeWindow(DaggerfallUI.UIManager, this));
+                return;
+            }
             if (Input.GetKeyDown(KeyCode.S) || click == HubCanvas.BtnSmith)
             {
                 DaggerfallUI.UIManager.PushWindow(new IdleSmithWindow(DaggerfallUI.UIManager, this));
@@ -478,7 +485,7 @@ namespace IdleAdventurer
 
         class HubCanvas : BaseScreenComponent
         {
-            public const int BtnGo = 1, BtnView = 2, BtnRepeat = 3, BtnDeeper = 4, BtnLess = 5, BtnMore = 6, BtnSpeed = 7, BtnTest = 8, BtnBack = 9, BtnHero = 10, BtnMap = 11, BtnSkip = 12, BtnOrders = 13, BtnSpells = 14, BtnSmith = 15;
+            public const int BtnGo = 1, BtnView = 2, BtnRepeat = 3, BtnDeeper = 4, BtnLess = 5, BtnMore = 6, BtnSpeed = 7, BtnTest = 8, BtnBack = 9, BtnHero = 10, BtnMap = 11, BtnSkip = 12, BtnOrders = 13, BtnSpells = 14, BtnSmith = 15, BtnForge = 16;
             public string[] Report;
             public readonly IdleButtons Buttons = new IdleButtons();
 
@@ -554,6 +561,8 @@ namespace IdleAdventurer
                         return Bad;
                     case IdleData.EvLoot:
                         return Blue;
+                    case IdleData.EvMine:
+                        return IdleUi.Gold;
                     case IdleData.EvHeroMiss:
                     case IdleData.EvEnemyMiss:
                         return Muted;
@@ -647,6 +656,7 @@ namespace IdleAdventurer
                 bx += Buttons.Add(BtnOrders, "Orders (O)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnSpells, "Spells (L)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnSmith, "Smith (S)", bx, bottom, tall, false) + gap;
+                bx += Buttons.Add(BtnForge, "Forge (B)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnSpeed, "Speed " + IdleClock.Speed + "x (F)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnTest, "Test (T)", bx, bottom, tall, false) + gap;
                 Buttons.Add(BtnBack, "Back (Esc)", bx, bottom, tall, false);
@@ -796,6 +806,8 @@ namespace IdleAdventurer
                 int[] marks = { 10, 50, 200 };
                 for (int i = 0; i < marks.Length; i++)
                     lines.Add("After " + marks[i] + " runs: " + IdleSim.Summary(IdleSim.Simulate(777, marks[i], true)));
+                lines.Add("After 200 runs in natural caves: " + IdleSim.Summary(IdleSim.Simulate(777, 200, true, IdleData.DungeonNaturalCave)));
+                lines.Add("After 200 runs in volcanic caves: " + IdleSim.Summary(IdleSim.Simulate(777, 200, true, IdleData.DungeonVolcanicCaves)));
             }
             catch (Exception ex)
             {

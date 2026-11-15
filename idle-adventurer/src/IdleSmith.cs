@@ -186,13 +186,13 @@ namespace IdleAdventurer
                     if (IdleSim.Level(item) < IdleSim.LevelCap(item))
                     {
                         int cost = IdleSim.StepCost(s, item);
-                        right = cost + " gold";
+                        right = (cost >= IdleData.Unbuyable) ? "needs ingots" : cost + " gold";
                         rightColor = (cost <= s.gold) ? IdleUi.Gold : IdleUi.Bad;
                     }
-                    else if (IdleSim.CannotReforge(s, item) == null || IdleSim.CannotReforge(s, item).StartsWith("Not enough"))
+                    else if (IdleSim.CannotReforge(s, item) == null || IdleSim.CannotReforge(s, item).StartsWith("Not enough") || IdleSim.CannotReforge(s, item).StartsWith("Needs"))
                     {
                         int cost = IdleSim.ReforgeCost(s, item);
-                        right = "reforge " + cost;
+                        right = (cost >= IdleData.Unbuyable) ? "reforge: needs ingots" : "reforge " + cost;
                         rightColor = (cost <= s.gold) ? IdleUi.Gold : IdleUi.Bad;
                     }
                     else
@@ -218,7 +218,7 @@ namespace IdleAdventurer
                         pouch += " " + IdleData.MetalNames[m] + " " + s.ingots[m];
                         any = true;
                     }
-                IdleUi.Text(any ? pouch : "Ingots: none in the pouch; the smith sells what is missing.", x, y, sc * 0.85f, IdleUi.Muted);
+                IdleUi.Text(any ? pouch : "Ingots: none in the pouch. The smith sells iron and steel; the forge (B in the hub) makes the rest.", x, y, sc * 0.85f, IdleUi.Muted);
                 y += line * 1.2f;
                 if (Owner.note.Length > 0)
                     Wrap(Owner.note, x, y, listW, sc * 0.9f, line * 0.95f, IdleUi.Gold);
@@ -253,7 +253,10 @@ namespace IdleAdventurer
                         cy = Wrap(gain + ".", cx, cy, cw, sc * 0.85f, line * 0.9f, IdleUi.White);
                         int ingots = IdleSim.StepIngots(sel);
                         int bill = IdleSim.IngotBill(s, metal, ingots);
-                        cy = Wrap(IdleSim.StepGold(sel) + " gold and " + ingots + " " + IdleData.MetalNames[metal] + " ingot(s)"
+                        if (bill >= IdleData.Unbuyable)
+                            cy = Wrap(IdleSim.NeedIngots(s, metal, ingots), cx, cy, cw, sc * 0.85f, line * 0.9f, IdleUi.Bad);
+                        else
+                            cy = Wrap(IdleSim.StepGold(sel) + " gold and " + ingots + " " + IdleData.MetalNames[metal] + " ingot(s)"
                             + ((bill > 0) ? ", bought for " + bill : ", from the pouch") + ". Total " + IdleSim.StepCost(s, sel) + ".",
                             cx, cy, cw, sc * 0.85f, line * 0.9f, IdleUi.White);
                     }
@@ -264,7 +267,13 @@ namespace IdleAdventurer
                     cy += line * 0.5f;
 
                     string reforge = IdleSim.CannotReforge(s, sel);
-                    if (reforge == null || reforge.StartsWith("Not enough"))
+                    if (reforge != null && reforge.StartsWith("Needs"))
+                    {
+                        IdleUi.Text("Reforge into " + IdleSim.NextMetalName(sel) + " (F)", cx, cy, sc * 0.95f, IdleUi.Gold);
+                        cy += line * 1.1f;
+                        cy = Wrap(reforge, cx, cy, cw, sc * 0.85f, line * 0.9f, IdleUi.Bad);
+                    }
+                    else if (reforge == null || reforge.StartsWith("Not enough"))
                     {
                         IdleUi.Text("Reforge into " + IdleSim.NextMetalName(sel) + " (F)", cx, cy, sc * 0.95f, IdleUi.Gold);
                         cy += line * 1.1f;

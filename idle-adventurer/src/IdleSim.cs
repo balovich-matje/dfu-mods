@@ -49,6 +49,7 @@ namespace IdleAdventurer
         public const int EvCast = 15;           // the hero's spell at the enemy; value is the damage
         public const int EvCastSelf = 16;       // the hero's spell on themselves; value is health healed
         public const int EvEnemyCast = 17;      // the enemy's spell; value is the damage to the hero
+        public const int EvMine = 18;           // mining: a vein found, mined, a pickaxe broken
 
         // Champion and boss traits, as bits in IdleSave.enemyTraits.
         public const int TraitSwift = 1;            // attacks 40% more often
@@ -132,6 +133,31 @@ namespace IdleAdventurer
         public static readonly int[] IngotPrice = { 25, 50, 80, 120, 180, 260, 380, 550, 800, 1200 };
         public const int LevelDamagePercent = 6;
         public const int ReforgeGold = 30;          // times the new metal's MetalGold
+
+        // Mining. Veins only appear in mines, natural caves and volcanic caves. Ores by metal (steel is smelted from
+        // iron ore and coal, daedric from ebony ore and a daedra heart). A pickaxe mines ore up to one metal above
+        // its own. The smith only sells iron and steel ingots; the rest are mined, smelted or salvaged.
+        public const int DungeonMine = 5, DungeonNaturalCave = 6, DungeonVolcanicCaves = 16;
+        public static readonly string[] OreNames = { "Iron ore", "", "Silver ore", "Moonstone", "Dwarven ore", "Mithril ore",
+            "Adamantium ore", "Ebony ore", "Orichalcum", "" };
+        public static readonly int[] OreMetals = { 0, 2, 3, 4, 5, 6, 7, 8 };
+        public static readonly int[] OreFloor = { 1, 4, 8, 12, 17, 22, 28, 34 };     // first floor where each ore shows
+        public const int SoldIngots = 2;            // iron and steel
+        public const int Unbuyable = 1 << 28;       // the price of something the smith does not sell
+        public const int PickPrice = 60;            // an iron pickaxe at the smith
+        public const int PickIngots = 3;
+        public const int OrePerIngot = 2;
+        public const int SalvageChance = 20;        // percent: an ingot from selling a metal weapon or armor piece
+        public static int PickGold(int metal) { return 50 * (metal + 1); }
+        public static int PickUses(int metal) { return 8 + 3 * metal; }
+        public static int MineSeconds(int metal) { return 15 + 3 * metal; }
+        public static int SmeltSeconds(int metal) { return 12 + 6 * metal; }
+        public static int SmeltFee(int metal) { return 4 + 6 * metal; }
+        public static int RushGold(int metal, int secondsLeft) { return Math.Max(1, secondsLeft * (2 + metal) / 2); }
+        public static bool IsCave(int dungeonType)
+        {
+            return dungeonType == DungeonMine || dungeonType == DungeonNaturalCave || dungeonType == DungeonVolcanicCaves;
+        }
 
         // What spells did to the current fight.
         public const int StatusHidden = 1;          // the enemy is invisible or a chameleon: the hero's swings -30 to hit
@@ -323,6 +349,17 @@ namespace IdleAdventurer
         public int levelsBought;            // reinforcement steps paid for
         public int reforges;
         public long smithGold;              // gold spent at the smith on reinforcing and reforging
+        public int[] ore;                   // per IdleData metal, in the materials pouch
+        public int coal;
+        public int hearts;                  // daedra hearts
+        public int pick;                    // pickaxe metal + 1; 0 none
+        public int pickUses;                // veins left before it breaks (a daedric one never does)
+        public int vein;                    // this floor's vein: ore metal + 1; 0 none or done
+        public int miningMetal;             // ore metal + 1 while mining; 0 not mining
+        public int[] smeltQueue;            // ingots waiting per metal, already paid for
+        public int smeltMetal;              // metal + 1 being smelted; 0 idle
+        public int smeltLeft;               // ticks left on the current ingot
+        public int veinsMined, oreMined, ingotsSmelted, ingotsSalvaged, picksBroken;
         [NonSerialized] public int[] bonus = new int[IdleData.AffixKinds];     // worn affixes, summed and capped
 
         // This run and lifetime tallies.
@@ -574,6 +611,10 @@ namespace IdleAdventurer
                 s.clearedFloors = new int[IdleData.DungeonTypes];
             if (s.ingots == null || s.ingots.Length != IdleData.Metals)
                 s.ingots = new int[IdleData.Metals];
+            if (s.ore == null || s.ore.Length != IdleData.Metals)
+                s.ore = new int[IdleData.Metals];
+            if (s.smeltQueue == null || s.smeltQueue.Length != IdleData.Metals)
+                s.smeltQueue = new int[IdleData.Metals];
             if (s.targets == null || s.targets.Length != IdleData.DungeonTypes)
                 s.targets = new int[IdleData.DungeonTypes];
             if (s.dungeonType < 0 || s.dungeonType >= IdleData.DungeonTypes)
@@ -835,6 +876,8 @@ namespace IdleAdventurer
             s.runKills = 0;
             s.runGold = 0;
             s.runItems = 0;
+            s.vein = 0;
+            s.miningMetal = 0;
             if (w.record)
                 w.Emit(IdleData.EvInfo, s.heroName + " sets out for " + Destination(s) + ", floors " + s.startFloor + " to " + s.targetFloor);
         }
@@ -847,7 +890,10 @@ namespace IdleAdventurer
                 if (s.phase == IdleData.PhaseTown)
                 {
                     if (s.autoRepeat == 0 || (w.stopAfter > 0 && s.expeditions >= w.stopAfter))
+                    {
+                        Smelt(w, ticks);
                         return;
+                    }
                     StartExpedition(w);
                 }
 
@@ -860,6 +906,7 @@ namespace IdleAdventurer
                     s.enemyTimer -= step;
                     s.clock += step;
                     ticks -= step;
+                    Smelt(w, step);
                     if (s.heroTimer <= 0)
                         HeroAttacks(w);
                     if (s.phase == IdleData.PhaseFight && s.enemyTimer <= 0)
@@ -871,10 +918,12 @@ namespace IdleAdventurer
                     s.phaseLeft -= step;
                     s.clock += step;
                     ticks -= step;
+                    Smelt(w, step);
                     if (s.phase == IdleData.PhaseExplore)
                     {
                         Rest(s, step);
-                        s.floorTicks += step;
+                        if (s.miningMetal == 0)
+                            s.floorTicks += step;       // the hero stands still while mining
                     }
                     if (s.phaseLeft <= 0)
                         PhaseEnds(w);
@@ -921,12 +970,17 @@ namespace IdleAdventurer
                 s.floorTicks = 0;
                 s.roomsLeft = IdleData.RoomsOnFloor(s.floor);
                 Explore(s);
+                RollVein(s);
                 if (w.record)
                     w.Emit(IdleData.EvFloor, (s.floor > 1) ? "Entered the dungeon and went straight down to floor " + s.floor : "Entered the dungeon");
             }
             else if (s.phase == IdleData.PhaseExplore)
             {
                 Tally(w, (int)DFCareer.Skills.Medical);
+                if (s.miningMetal > 0)
+                    FinishMining(w);
+                else if (s.recall == 0 && s.roomsLeft <= 0 && s.vein > 0 && StartMining(w))
+                    return;
                 if (s.recall != 0)
                 {
                     s.retreats++;
@@ -951,6 +1005,7 @@ namespace IdleAdventurer
                     s.floorTicks = 0;
                     s.roomsLeft = IdleData.RoomsOnFloor(s.floor);
                     Explore(s);
+                    RollVein(s);
                     if (w.record)
                         w.Emit(IdleData.EvFloor, "Down to floor " + s.floor);
                 }
@@ -1669,6 +1724,12 @@ namespace IdleAdventurer
             {
                 s.championsKilled++;
             }
+            if (IsDaedra(s.enemyId) && Roll(s, 50))
+            {
+                s.hearts++;
+                if (w.record)
+                    w.Emit(IdleData.EvLoot, "Took a daedra heart");
+            }
             s.enemyId = -1;
             s.enemyTraits = 0;
 
@@ -1817,6 +1878,286 @@ namespace IdleAdventurer
                 w.Emit(IdleData.EvLoot, "Picked up " + Name(item));
         }
 
+        // ------------------------------------------------------------------ mining and smelting
+
+        static bool IsDaedra(int id)
+        {
+            return id == (int)MobileTypes.FrostDaedra || id == (int)MobileTypes.FireDaedra || id == (int)MobileTypes.Daedroth
+                || id == (int)MobileTypes.DaedraSeducer || id == (int)MobileTypes.DaedraLord;
+        }
+
+        // The best ore a pickaxe can mine: one metal above its own (a daedric one mines anything).
+        public static int PickReach(IdleSave s)
+        {
+            return (s.pick <= 0) ? -1 : Mathf.Min(IdleData.Metals - 1, s.pick);
+        }
+
+        public static string PickName(IdleSave s)
+        {
+            return (s.pick <= 0) ? "no pickaxe" : IdleData.MetalNames[s.pick - 1] + " pickaxe";
+        }
+
+        // A cave floor may hold a vein. Deeper floors roll better ore; volcanic caves lean higher, mines lower but richer.
+        // The best ore (as an index into OreMetals) a floor of a dungeon type can hold.
+        static int TopOre(int dungeonType, int floor)
+        {
+            int depth = floor + (dungeonType == IdleData.DungeonVolcanicCaves ? 6 : dungeonType == IdleData.DungeonMine ? -3 : 0);
+            int top = 0;
+            for (int i = 0; i < IdleData.OreFloor.Length; i++)
+                if (depth >= IdleData.OreFloor[i])
+                    top = i;
+            return top;
+        }
+
+        static void RollVein(IdleSave s)
+        {
+            s.vein = 0;
+            if (!IdleData.IsCave(s.dungeonType))
+                return;
+            if (!Roll(s, s.dungeonType == IdleData.DungeonMine ? 90 : 70))
+                return;
+            int top = TopOre(s.dungeonType, s.floor);
+            int pick = Range(s, Mathf.Max(0, top - 2), top);
+            s.vein = IdleData.OreMetals[pick] + 1;
+        }
+
+        // Once a floor's fights are done, the hero mines its vein if the pickaxe is good enough. True when mining starts.
+        static bool StartMining(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            int metal = s.vein - 1;
+            s.vein = 0;
+            if (PickReach(s) < metal)
+            {
+                if (w.record)
+                    w.Emit(IdleData.EvMine, "Found a vein of " + IdleData.OreNames[metal].ToLower() + ", but " + (s.pick <= 0 ? "has no pickaxe" : "the " + PickName(s).ToLower() + " cannot break it"));
+                return false;
+            }
+            s.miningMetal = metal + 1;
+            s.phase = IdleData.PhaseExplore;
+            s.phaseLeft = IdleData.MineSeconds(metal) * IdleData.TicksPerSecond;
+            s.phaseTotal = s.phaseLeft;
+            if (w.record)
+                w.Emit(IdleData.EvMine, "Mining a vein of " + IdleData.OreNames[metal].ToLower());
+            return true;
+        }
+
+        static void FinishMining(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            int metal = s.miningMetal - 1;
+            s.miningMetal = 0;
+            int amount = Range(s, 3, 6) + s.floor / 3 + (s.dungeonType == IdleData.DungeonMine ? 2 : 0);
+            int coal = Range(s, 0, 2) + (s.dungeonType == IdleData.DungeonMine ? 1 : 0);
+            s.ore[metal] += amount;
+            s.coal += coal;
+            s.oreMined += amount;
+            s.veinsMined++;
+            if (w.record)
+                w.Emit(IdleData.EvMine, "Mined " + amount + " " + IdleData.OreNames[metal].ToLower() + ((coal > 0) ? " and " + coal + " coal" : ""));
+            if (s.pick - 1 < IdleData.Metals - 1)
+            {
+                s.pickUses--;
+                if (s.pickUses <= 0)
+                {
+                    if (w.record)
+                        w.Emit(IdleData.EvMine, "The " + PickName(s).ToLower() + " broke");
+                    s.pick = 0;
+                    s.picksBroken++;
+                }
+            }
+        }
+
+        // What one ingot of a metal takes from the pouch: two ore (iron ore and coal for steel, ebony ore and a heart
+        // for daedric).
+        public static int SourceOre(int metal)
+        {
+            return (metal == 1) ? 0 : (metal == IdleData.Metals - 1) ? 7 : metal;
+        }
+
+        public static bool CanSmelt(IdleSave s, int metal)
+        {
+            if (metal < 0 || metal >= IdleData.Metals || s.ore[SourceOre(metal)] < IdleData.OrePerIngot)
+                return false;
+            if (metal == 1 && s.coal < 1)
+                return false;
+            if (metal == IdleData.Metals - 1 && s.hearts < 1)
+                return false;
+            return s.gold >= IdleData.SmeltFee(metal);
+        }
+
+        public static string SmeltRecipe(int metal)
+        {
+            if (metal == 1)
+                return "2 iron ore and 1 coal";
+            if (metal == IdleData.Metals - 1)
+                return "2 ebony ore and 1 daedra heart";
+            return (IdleData.OreNames[metal].Length > 0) ? "2 " + IdleData.OreNames[metal].ToLower() : "";
+        }
+
+        // Puts one ingot in the smelter's queue, paying for it now.
+        public static bool QueueSmelt(IdleSave s, int metal)
+        {
+            if (!CanSmelt(s, metal))
+                return false;
+            s.ore[SourceOre(metal)] -= IdleData.OrePerIngot;
+            if (metal == 1)
+                s.coal--;
+            if (metal == IdleData.Metals - 1)
+                s.hearts--;
+            s.gold -= IdleData.SmeltFee(metal);
+            s.smeltQueue[metal]++;
+            return true;
+        }
+
+        public static int Queued(IdleSave s)
+        {
+            int n = 0;
+            for (int m = 0; m < IdleData.Metals; m++)
+                n += s.smeltQueue[m];
+            return n;
+        }
+
+        // Seconds until the whole queue is done.
+        public static int SmeltSecondsLeft(IdleSave s)
+        {
+            int ticks = (s.smeltMetal > 0) ? s.smeltLeft : 0;
+            for (int m = 0; m < IdleData.Metals; m++)
+            {
+                int waiting = s.smeltQueue[m] - ((s.smeltMetal == m + 1) ? 1 : 0);
+                ticks += waiting * IdleData.SmeltSeconds(m) * IdleData.TicksPerSecond;
+            }
+            return (ticks + IdleData.TicksPerSecond - 1) / IdleData.TicksPerSecond;
+        }
+
+        public static int RushCost(IdleSave s)
+        {
+            int gold = 0;
+            for (int m = 0; m < IdleData.Metals; m++)
+            {
+                int waiting = s.smeltQueue[m] - ((s.smeltMetal == m + 1) ? 1 : 0);
+                if (waiting > 0)
+                    gold += IdleData.RushGold(m, waiting * IdleData.SmeltSeconds(m));
+            }
+            if (s.smeltMetal > 0)
+                gold += IdleData.RushGold(s.smeltMetal - 1, s.smeltLeft / IdleData.TicksPerSecond);
+            return gold;
+        }
+
+        // Pays to finish the whole queue now.
+        public static bool Rush(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            int cost = RushCost(s);
+            if (Queued(s) == 0 || cost > s.gold)
+                return false;
+            s.gold -= cost;
+            s.smithGold += cost;
+            for (int m = 0; m < IdleData.Metals; m++)
+            {
+                s.ingots[m] += s.smeltQueue[m];
+                s.ingotsSmelted += s.smeltQueue[m];
+                s.smeltQueue[m] = 0;
+            }
+            s.smeltMetal = 0;
+            s.smeltLeft = 0;
+            return true;
+        }
+
+        // The smelter works with the clock, at home or away, best metal first.
+        static void Smelt(IdleWorld w, long ticks)
+        {
+            IdleSave s = w.s;
+            while (ticks > 0)
+            {
+                if (s.smeltMetal == 0)
+                {
+                    for (int m = IdleData.Metals - 1; m >= 0 && s.smeltMetal == 0; m--)
+                        if (s.smeltQueue[m] > 0)
+                        {
+                            s.smeltMetal = m + 1;
+                            s.smeltLeft = IdleData.SmeltSeconds(m) * IdleData.TicksPerSecond;
+                        }
+                    if (s.smeltMetal == 0)
+                        return;
+                }
+                int step = (int)Math.Min(ticks, (long)s.smeltLeft);
+                s.smeltLeft -= step;
+                ticks -= step;
+                if (s.smeltLeft <= 0)
+                {
+                    int metal = s.smeltMetal - 1;
+                    s.smeltQueue[metal] = Mathf.Max(0, s.smeltQueue[metal] - 1);
+                    s.ingots[metal]++;
+                    s.ingotsSmelted++;
+                    s.smeltMetal = 0;
+                }
+            }
+        }
+
+        public static int PickCost(IdleSave s, int metal)
+        {
+            if (metal == 0 && s.ingots[0] < IdleData.PickIngots)
+                return IdleData.PickPrice;
+            return IdleData.PickGold(metal);
+        }
+
+        // Why a pickaxe of a metal cannot be made now, or null.
+        public static string CannotMakePick(IdleSave s, int metal)
+        {
+            if (metal != 0 && s.ingots[metal] < IdleData.PickIngots)
+                return "A " + IdleData.MetalNames[metal].ToLower() + " pickaxe takes " + IdleData.PickIngots + " " + IdleData.MetalNames[metal].ToLower() + " ingots; the pouch has " + s.ingots[metal] + ".";
+            if (PickCost(s, metal) > s.gold)
+                return "Not enough gold: it costs " + PickCost(s, metal) + ".";
+            return null;
+        }
+
+        // Buys an iron pickaxe or forges one from three ingots. The old one is thrown away.
+        public static bool MakePick(IdleSave s, int metal)
+        {
+            if (CannotMakePick(s, metal) != null)
+                return false;
+            bool bought = metal == 0 && s.ingots[0] < IdleData.PickIngots;
+            if (!bought)
+                s.ingots[metal] -= IdleData.PickIngots;
+            int cost = PickCost(s, metal);
+            s.gold -= cost;
+            s.smithGold += cost;
+            s.pick = metal + 1;
+            s.pickUses = IdleData.PickUses(metal);
+            return true;
+        }
+
+        // At home: queue every ingot the pouch allows (steel before iron and daedric before ebony while coal and hearts
+        // last), and keep a pickaxe: a better one when the ingots are there, a new iron one when it broke.
+        static void AutoForge(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            if (s.noAutoSmith)
+                return;
+            for (int m = IdleData.Metals - 1; m >= 0; m--)
+                while (CanSmelt(s, m) && s.gold >= IdleData.SmeltFee(m) * 4)
+                    QueueSmelt(s, m);
+            // Pickaxes only for a cave, and only as good as its deepest target floor needs: ingots are better spent
+            // on gear than on a pickaxe that has nothing to dig.
+            int type = (s.nextType >= 0) ? s.nextType : s.dungeonType;
+            if (!IdleData.IsCave(type))
+                return;
+            int want = Mathf.Max(0, IdleData.OreMetals[TopOre(type, s.targetFloor)] - 1);
+            int best = -1;
+            for (int m = want; m >= s.pick && best < 0; m--)
+                if (m > 0 && CannotMakePick(s, m) == null && PickCost(s, m) * 3 <= s.gold)
+                    best = m;
+            if (best < 0 && s.pick <= 0 && CannotMakePick(s, 0) == null)
+                best = 0;
+            if (best >= 0 && best + 1 > s.pick)
+            {
+                MakePick(s, best);
+                if (w.record)
+                    w.Emit(IdleData.EvMine, "Now carrying " + PickName(s).ToLower());
+            }
+        }
+
         // ------------------------------------------------------------------ affixes and reinforcement
 
         // Per item: { level, kind, value, kind, value, kind, value }, kind -1 for none. Keyed by the item object
@@ -1944,13 +2285,23 @@ namespace IdleAdventurer
 
         public static int StepIngots(DaggerfallUnityItem item)
         {
-            return 1 + Level(item) / 3;
+            return 1 + Level(item) / 5;
         }
 
         // Total gold for a number of ingots of a metal, buying whatever the pouch is short of.
         public static int IngotBill(IdleSave s, int metal, int needed)
         {
-            return Mathf.Max(0, needed - s.ingots[metal]) * IdleData.IngotPrice[metal];
+            int missing = Mathf.Max(0, needed - s.ingots[metal]);
+            if (missing == 0)
+                return 0;
+            return (metal < IdleData.SoldIngots) ? missing * IdleData.IngotPrice[metal] : IdleData.Unbuyable;
+        }
+
+        public static string NeedIngots(IdleSave s, int metal, int needed)
+        {
+            return "Needs " + needed + " " + IdleData.MetalNames[metal] + " ingot(s), the pouch has " + s.ingots[metal] + ". The smith only sells iron and steel: "
+                + (metal == 1 ? "" : metal == 9 ? "smelt ebony ore with a daedra heart, " : "mine " + IdleData.OreNames[metal].ToLower() + " in caves and smelt it, ")
+                + "or salvage " + IdleData.MetalNames[metal].ToLower() + " gear by selling it.";
         }
 
         public static int StepCost(IdleSave s, DaggerfallUnityItem item)
@@ -1965,6 +2316,8 @@ namespace IdleAdventurer
                 return "Only weapons and armor can be reinforced.";
             if (Level(item) >= LevelCap(item))
                 return MetalName(item) + " goes no higher than +" + LevelCap(item) + ". Reforge it into a better metal.";
+            if (IngotBill(s, Metal(item), StepIngots(item)) >= IdleData.Unbuyable)
+                return NeedIngots(s, Metal(item), StepIngots(item));
             if (StepCost(s, item) > s.gold)
                 return "Not enough gold: the next level costs " + StepCost(s, item) + ".";
             return null;
@@ -2028,6 +2381,9 @@ namespace IdleAdventurer
                 return "Daedric is the best metal there is.";
             if (!Reforgeable(item))
                 return "Artifacts keep their own metal; they can still be reinforced.";
+            int nextMetal = MetalAt(item, Rung(item) + 1);
+            if (IngotBill(s, nextMetal, ReforgeIngots(item)) >= IdleData.Unbuyable)
+                return NeedIngots(s, nextMetal, ReforgeIngots(item));
             if (ReforgeCost(s, item) > s.gold)
                 return "Not enough gold: reforging costs " + ReforgeCost(s, item) + ".";
             return null;
@@ -2352,6 +2708,17 @@ namespace IdleAdventurer
 
         // Puts a spare weapon or piece of armor in the stash. When the stash is full the cheapest thing in it is
         // sold, and the gold from that is returned.
+        // Selling a metal weapon or armor piece sometimes leaves an ingot of its metal with the smith's scrap.
+        static void Salvage(IdleWorld w, DaggerfallUnityItem item)
+        {
+            if (SlotFor(item) < 0 || (item.ItemGroup != ItemGroups.Weapons && Rung(item) == 0) || IsBow(item))
+                return;
+            if (!Roll(w.s, IdleData.SalvageChance))
+                return;
+            w.s.ingots[Metal(item)]++;
+            w.s.ingotsSalvaged++;
+        }
+
         static int Store(IdleWorld w, DaggerfallUnityItem item)
         {
             w.stash.Add(item);
@@ -2363,6 +2730,7 @@ namespace IdleAdventurer
                     if (SalePrice(w.stash[i]) < SalePrice(w.stash[worst]))
                         worst = i;
                 gold += SalePrice(w.stash[worst]);
+                Salvage(w, w.stash[worst]);
                 w.stash.RemoveAt(worst);
             }
             return gold;
@@ -2415,6 +2783,7 @@ namespace IdleAdventurer
             if (index < 0 || index >= w.stash.Count)
                 return 0;
             int gold = SalePrice(w.stash[index]);
+            Salvage(w, w.stash[index]);
             w.stash.RemoveAt(index);
             w.s.gold += gold;
             w.s.goldEarned += gold;
@@ -2524,7 +2893,10 @@ namespace IdleAdventurer
                 if (SlotFor(item) >= 0 && Works(item))
                     sold += Store(w, item);
                 else
+                {
                     sold += SalePrice(item);
+                    Salvage(w, item);
+                }
             }
             w.haul.Clear();
 
@@ -2557,6 +2929,7 @@ namespace IdleAdventurer
                 item.currentCondition = item.maxCondition;
             }
 
+            AutoForge(w);
             int smith = AutoSmith(w);
 
             Restock(w);
@@ -2578,7 +2951,7 @@ namespace IdleAdventurer
                     gear += (gear.Length > 0 ? ", " : "") + Name(w.gear[i]);
             return "level " + s.level + ", health " + s.maxHealth + ", gold " + s.gold + ", runs " + s.expeditions + " (cleared " + s.clears
                 + ", retreated " + s.retreats + ", died " + s.deaths + "), kills " + s.kills + ", deepest floor " + s.deepestFloor
-                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", spells " + s.spellsCast + "/" + s.enemySpellsCast + ", enchanted items " + s.affixesFound + ", levels bought " + s.levelsBought + ", reforges " + s.reforges + ", smith gold " + s.smithGold + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
+                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", spells " + s.spellsCast + "/" + s.enemySpellsCast + ", enchanted items " + s.affixesFound + ", levels bought " + s.levelsBought + ", reforges " + s.reforges + ", smith gold " + s.smithGold + ", veins " + s.veinsMined + ", ore " + s.oreMined + ", smelted " + s.ingotsSmelted + ", salvaged " + s.ingotsSalvaged + ", picks broken " + s.picksBroken + ", " + PickName(s) + ", hearts " + s.hearts + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
                 + (long)(s.goldEarned / Mathf.Max(0.05f, s.clock / 36000f)) + " | " + gear;
         }
 
@@ -2590,7 +2963,14 @@ namespace IdleAdventurer
         // Runs a fresh hero through a number of expeditions without touching the real save.
         public static IdleWorld Simulate(int seed, int expeditions, bool deeper)
         {
+            return Simulate(seed, expeditions, deeper, -1);
+        }
+
+        public static IdleWorld Simulate(int seed, int expeditions, bool deeper, int dungeonType)
+        {
             IdleWorld w = NewHero(seed, "Test");
+            if (dungeonType >= 0)
+                w.s.dungeonType = dungeonType;
             w.s.autoRepeat = 1;
             w.s.autoDeeper = deeper ? 1 : 0;
             if (!deeper)

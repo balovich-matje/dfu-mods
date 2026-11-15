@@ -1031,7 +1031,18 @@ namespace IdleAdventurer
             PickWeapon(w);
 
             // Footsteps, at normal speed only.
-            if (s.phase == IdleData.PhaseExplore && IdleClock.Speed == 1 && now >= stepAt)
+            if (s.phase == IdleData.PhaseExplore && s.miningMetal > 0)
+            {
+                // Mining: the hero stands and swings at the vein.
+                if (now >= stepAt)
+                {
+                    stepAt = now + 0.9f / Mathf.Min(4, IdleClock.Speed);
+                    stepCount++;
+                    swingUntil = now + 0.45f;
+                    DaggerfallUI.Instance.PlayOneShot((SoundClips)((int)SoundClips.Parry1 + stepCount % 9));
+                }
+            }
+            else if (s.phase == IdleData.PhaseExplore && IdleClock.Speed == 1 && now >= stepAt)
             {
                 stepAt = now + 0.48f;
                 stepCount++;
@@ -1220,7 +1231,7 @@ namespace IdleAdventurer
                         IdleUi.Centred(name, W * 0.5f, pad, sc * 1.2f, IdleSim.IsChampion(s) ? IdleUi.TraitColor(s.enemyTraits) : IdleUi.Gold);
                         IdleUi.Bar(new Rect((W - bw) / 2f, pad + line * 1.25f, bw, Mathf.Round(line * 0.35f)), (float)s.enemyHealth / Mathf.Max(1, s.enemyMaxHealth), IdleUi.Line);
                     }
-                    IdleUi.Text("Floor " + s.floor + " of " + s.targetFloor + "    " + s.roomsLeft + " fight(s) left", pad, pad, sc, IdleUi.Gold);
+                    IdleUi.Text("Floor " + s.floor + " of " + s.targetFloor + "    " + ((s.miningMetal > 0) ? "Mining " + IdleData.OreNames[s.miningMetal - 1].ToLower() : s.roomsLeft + " fight(s) left"), pad, pad, sc, IdleUi.Gold);
                 }
                 else
                 {

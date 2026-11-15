@@ -415,7 +415,25 @@ dungeons, into power. Every one is a ladder whose next step costs more than the 
 - The walking view now drops its route onto the real floor, so the camera climbs stairs instead of floating along
   the navigation ramp.
 
-### 13.10 Phase order
+### 13.10 Phase 2 as built (0.11.0)
+
+- Veins: 70% of floors in natural and volcanic caves, 90% in mines. The hero mines once the floor's fights are done
+  (stands and swings in the view), 15 s + 3 s per metal, 3-6 ore + floor/3 (mines +2), 0-2 coal.
+- Ore by depth (natural caves): iron 1, silver 4, moonstone 8, dwarven 12, mithril 17, adamantium 22, ebony 28,
+  orichalcum 34. Volcanic caves 6 floors sooner, mines 3 later. A vein rolls one of the top three unlocked ores.
+- Pickaxe reach is its metal + 1. Iron is bought (60) or forged; others take 3 ingots and 50 x (metal + 1) gold and
+  last 8 + 3 x metal veins; daedric never breaks. Auto-forge only makes a pickaxe for a cave destination and only as
+  good as the target floor needs.
+- Smelter: 2 ore an ingot (steel: iron ore + coal; daedric: ebony ore + daedra heart, 50% from daedra), 12 s + 6 s
+  per metal, a small fee, runs on the sim clock (also offline). Rush pays to finish the queue.
+- The smith only sells iron and steel ingots. Selling metal gear salvages an ingot 20% of the time.
+- Reinforcing takes 1 + level/5 ingots (was level/3).
+- Forge screen: B in the hub.
+- Balance (200 runs): orc stronghold hero ends +9 daedric, 0.96 M gold left (salvage only); natural caves +16
+  mithril with 934 ingots smelted, 1.07 M left; volcanic caves lean high, iron is scarce there. Gold still piles up:
+  phases 3 and 4 are the gold-only sinks.
+
+### 13.11 Phase order
 
 1. Reinforcement and reforging, with ingots bought from the smith only; rarity replaced, saves migrated.
 2. Mining, pickaxes, the materials pouch and the smelter queue.
