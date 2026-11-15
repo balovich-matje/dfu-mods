@@ -296,7 +296,7 @@ Each ends with something runnable and a check.
 - **M3 World and town:** map travel, all dungeon types, depth, shop/smith/sell, auto-repeat, offline catch-up.
   *Check: close the game for an hour, summary matches a replay of the same seed.*
 - **M4 Depth of play:** orders editor, spells and potions in the sim, champions, bosses, material warnings.
-- **M5 Long tail:** affixes and rarity, soul gems and enchanter hookup, guild ranks, trainer, house.
+- **M5 Long tail:** affixes (done), then the gold sinks of section 13 in its phase order, guild ranks, trainer, house.
 - **M6 Polish for release:** balance pass with the CSV harness, tutorial tips, settings, README, Nexus page.
 
 M0-M2 are the proof of concept to show the community.
@@ -318,3 +318,97 @@ M0-M2 are the proof of concept to show the community.
 2. Target length of an early expedition at 1x: 5-8 minutes (default)?
 3. Offline cap: 12 hours (default)?
 4. Name of the mod.
+
+## 13. Gold sinks (M5 redesign, proposed 2026-11-16)
+
+The long run piles up gold (1.2 million after 200 test runs). These systems turn it, plus things found in
+dungeons, into power. Every one is a ladder whose next step costs more than the last.
+
+### 13.1 Gear: reinforcement replaces rarity
+
+- **+N levels, Dark Souls style.** Every weapon and armor piece has a reinforcement level shown in its name:
+  "+7 Daedric Saber of Swiftness". Weapons gain 6% of their base damage per level; armor gains 1 armor per 2 levels.
+- **The material sets the cap,** so better metal is still worth finding: Iron/Leather +6, Steel/Chain +8, Silver +10,
+  Elven +12, Dwarven +14, Mithril +16, Adamantium +18, Ebony +20, Orcish +22, Daedric +25.
+- **Reinforcing** (smith) costs gold plus ingots of the item's own metal. Both grow with the level; the gold
+  grows with the square of it, so +20 and above is where the millions go.
+- **Reforging** (smith) turns a piece into the next metal, keeping its level and enchantments, for ingots of the
+  new metal and gold. It is how a favourite item keeps up instead of being replaced.
+- **Fine, Rare and Heroic go away.** The name colour shows the enchantment count instead (none white, one blue,
+  two yellow, three orange). Saves migrate: Fine keeps its one affix, Rare its two, Heroic its two and becomes +3.
+- **Drops:** ordinary loot is +0, sometimes +1 to +3 deeper down. Champions add a chance of an enchantment.
+  Bosses drop a piece at about +depth/2 (capped by its metal) with one enchantment and a chance of a socket.
+
+### 13.2 Mining, ore and ingots
+
+- **Ore veins only in Mine, Natural cave and Volcanic caves.** Each floor has a chance of a vein; deeper floors
+  roll better ore. Volcanic caves lean to ebony and the high metals, mines to iron and silver.
+- **Ore ladder:** iron, silver, elven (moonstone), dwarven, mithril, adamantium, ebony, orichalcum (orcish).
+  Steel is smelted from iron and coal (coal also from veins). Daedric is ebony plus a daedra heart, which drops
+  from daedra.
+- **Pickaxes:** the pickaxe's metal sets the best ore it can mine. Iron is sold by the smith; each next one is
+  crafted from ingots of the metal below. All but Daedric wear out with each vein and break; the Orders gain a
+  rule to buy a spare automatically.
+- **Mining** costs expedition time and the pickaxe's wear; the ore goes to a materials pouch, not the haul, so it
+  never competes with loot for weight.
+- **Smelting is not instant:** the smelter takes a queue of ore and works in real time, also while the game is
+  closed (two ore to an ingot, minutes per ingot rising with the metal, a gold fee). Paying more rushes it; the
+  house adds a home furnace later.
+- Low ingots (iron, steel) can also be bought, so a hero who skips caves is slowed down, not stopped.
+
+### 13.3 Gems and sockets
+
+- **Gems are the game's own:** ruby, emerald, sapphire, diamond, jade, turquoise, malachite, amber. Found in cave
+  veins and rarely as loot.
+- **Effects depend on where they sit,** Diablo style. Example: ruby adds fire damage in a weapon and health in
+  armor; sapphire adds magicka or spell power; diamond armor or spell resistance; amber gold find; turquoise
+  speed; emerald healing; jade poison resistance; malachite magicka regeneration.
+- **Gem levels 1 to 10,** each upgrade costing about double the last in gold (and a second gem of the same kind
+  from level 6). The jeweller does it.
+- **Sockets:** weapons up to 3, cuirass 3, other armor and jewellery 1 to 2. Gear rarely drops with sockets; the
+  jeweller adds them, each next one dearer. Taking a gem out costs gold too; it can be put back elsewhere.
+
+### 13.4 Enchantments
+
+- The current affixes become enchantments. The enchanter adds one to a piece with a free slot (up to three) or
+  rerolls an existing one, for gold plus a filled soul gem; stronger souls give stronger rolls.
+- Soul gems: bought empty, filled by a Soul Trap order on suitable enemies, kept in the materials pouch.
+
+### 13.5 For mages
+
+- **Spell ranks I to X:** each rank raises the spell's magnitude and lowers its cost; each costs more than the
+  last and needs Mages Guild rank at the top end.
+- **Jewellery and robes** take sockets and enchantments too, so gems and enchanting pay off without plate.
+- Staffs (the game's own) as a mage weapon line, reinforced like any weapon.
+
+### 13.6 For rogues
+
+- **Poisons, the game's own twelve:** each is a tier. The alchemist teaches a recipe once (a large price), then
+  brews vials. A vial coats the weapon for one expedition: a share of hits adds poison damage over time, and
+  undead, daedra and some monsters shrug it off. The Orders gain "coat with the best poison before leaving".
+- **Lockpicks:** locked chests appear on floors; a rogue with lockpicks and Lockpicking opens them for extra
+  loot and gems. Picks break.
+
+### 13.7 More ideas
+
+- **Temple blessings:** a timed buff bought before an expedition (health, luck, resistances). A steady sink for all.
+- **Trainer:** gold per skill point, up to a cap set by level.
+- **House:** storage, a longer offline cap, the home furnace, a display of trophies from bosses.
+
+### 13.8 What it needs first
+
+- **A hero class.** Today every hero starts as the same blade fighter. Mage and rogue sinks only matter once a
+  new hero can start as a warrior, mage or rogue (their skills, stats, starting gear and spells), or picks one of
+  the game's own classes.
+
+### 13.9 Phase order
+
+1. Reinforcement and reforging, with ingots bought from the smith only; rarity replaced, saves migrated.
+2. Mining, pickaxes, the materials pouch and the smelter queue.
+3. Gems, sockets and the jeweller.
+4. Enchanter with soul gems.
+5. Hero classes, then spell ranks, jewellery and staffs, then poisons and lockpicks.
+6. Temple blessings, trainer, house.
+
+Each phase ends with a balance run of the test harness: gold left over at run 200 should fall, deaths in the
+first 10 runs should not rise.
