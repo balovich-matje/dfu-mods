@@ -733,6 +733,7 @@ namespace IdleAdventurer
             public float born;
             public bool onHero;
             public bool heal;
+            public bool spell;
         }
 
         ViewCanvas canvas;
@@ -902,11 +903,11 @@ namespace IdleAdventurer
                 IdleEvent e = w.events[i];
                 if (e.type == IdleData.EvHeroHit || e.type == IdleData.EvHeroMiss)
                     swingUntil = now + 0.45f;
-                if (e.type == IdleData.EvEnemyHit || e.type == IdleData.EvEnemyMiss)
+                if (e.type == IdleData.EvEnemyHit || e.type == IdleData.EvEnemyMiss || e.type == IdleData.EvEnemyCast)
                     enemyAttackUntil = now + 0.5f;
-                if (e.type == IdleData.EvEnemyHit)
+                if (e.type == IdleData.EvEnemyHit || (e.type == IdleData.EvEnemyCast && e.value > 0))
                     hurtUntil = now + 0.25f;
-                if (e.type == IdleData.EvPotion && floaters.Count < 12)
+                if ((e.type == IdleData.EvPotion || (e.type == IdleData.EvCastSelf && e.value > 0)) && floaters.Count < 12)
                 {
                     Floater f = new Floater();
                     f.text = "+" + e.value;
@@ -915,18 +916,20 @@ namespace IdleAdventurer
                     f.heal = true;
                     floaters.Add(f);
                 }
-                if (e.type == IdleData.EvHeroHit)
+                if (e.type == IdleData.EvHeroHit || (e.type == IdleData.EvCast && e.value > 0))
                     enemyHurtUntil = now + 0.22f;
                 if (e.type == IdleData.EvKill && scene != null)
                     scene.KillEnemy();
                 if (onShow)
                     Sound(e, now);
-                if ((e.type == IdleData.EvHeroHit || e.type == IdleData.EvEnemyHit) && floaters.Count < 12)
+                bool spellHit = (e.type == IdleData.EvCast || e.type == IdleData.EvEnemyCast) && e.value > 0;
+                if ((e.type == IdleData.EvHeroHit || e.type == IdleData.EvEnemyHit || spellHit) && floaters.Count < 12)
                 {
                     Floater f = new Floater();
                     f.text = (e.value > 0) ? "-" + e.value : "0";
                     f.born = now;
-                    f.onHero = e.type == IdleData.EvEnemyHit;
+                    f.onHero = e.type == IdleData.EvEnemyHit || e.type == IdleData.EvEnemyCast;
+                    f.spell = spellHit;
                     floaters.Add(f);
                 }
             }
@@ -1009,6 +1012,22 @@ namespace IdleAdventurer
                     clip = (int)SoundClips.MakePotion;
                     always = true;
                     break;
+                case IdleData.EvCast:
+                case IdleData.EvEnemyCast:
+                    // The game's impact sound for the spell's element.
+                    switch (e.element)
+                    {
+                        case IdleData.ElementFire: clip = (int)SoundClips.SpellImpactFire; break;
+                        case IdleData.ElementCold: clip = (int)SoundClips.SpellImpactCold; break;
+                        case IdleData.ElementPoison: clip = (int)SoundClips.SpellImpactPoison; break;
+                        case IdleData.ElementShock: clip = (int)SoundClips.SpellImpactShock; break;
+                        default: clip = (int)SoundClips.SpellImpactMagic; break;
+                    }
+                    break;
+                case IdleData.EvCastSelf:
+                    clip = (int)SoundClips.CastSpell1 + UnityEngine.Random.Range(0, 5);
+                    always = true;
+                    break;
                 case IdleData.EvLevel:
                     clip = (int)SoundClips.LevelUp;
                     always = true;
@@ -1076,7 +1095,7 @@ namespace IdleAdventurer
                         float age = now - f.born;
                         float fx = f.onHero ? pad + line * 4f : W * 0.5f + ((i % 3) - 1) * line * 1.5f;
                         float fy = (f.onHero ? H - pad - line * 4f : H * 0.36f) - age * line * 2.2f;
-                        Color c = f.heal ? IdleUi.Good : f.onHero ? IdleUi.Bad : IdleUi.White;
+                        Color c = f.heal ? IdleUi.Good : f.spell ? IdleUi.Blue : f.onHero ? IdleUi.Bad : IdleUi.White;
                         c.a = Mathf.Clamp01(1.4f - age * 1.3f);
                         IdleUi.Centred(f.text, fx, fy, sc * 1.5f, c);
                     }

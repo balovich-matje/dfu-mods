@@ -325,7 +325,7 @@ namespace IdleAdventurer
                 y += line * 1.5f;
                 IdleUi.Text("Level " + s.level + "    " + IdleSim.PhaseName(s), col1, y, sc * 0.9f, IdleUi.Muted);
                 y += line * 1.1f;
-                IdleUi.Text("Health " + s.health + "/" + s.maxHealth, col1, y, sc, IdleUi.White);
+                IdleUi.Text("Health " + s.health + "/" + s.maxHealth + "   Magicka " + s.magicka + "/" + IdleSim.MaxMagicka(s), col1, y, sc * 0.9f, IdleUi.White);
                 y += line;
                 IdleUi.Bar(new Rect(col1, y, col1W, Mathf.Round(line * 0.3f)), (float)s.health / Mathf.Max(1, s.maxHealth), IdleUi.Bad);
                 y += line * 0.7f;

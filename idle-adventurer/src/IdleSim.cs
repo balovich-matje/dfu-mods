@@ -46,6 +46,9 @@ namespace IdleAdventurer
         public const int EvLevel = 12;
         public const int EvSkill = 13;
         public const int EvPotion = 14;
+        public const int EvCast = 15;           // the hero's spell at the enemy; value is the damage
+        public const int EvCastSelf = 16;       // the hero's spell on themselves; value is health healed
+        public const int EvEnemyCast = 17;      // the enemy's spell; value is the damage to the hero
 
         // Champion and boss traits, as bits in IdleSave.enemyTraits.
         public const int TraitSwift = 1;            // attacks 40% more often
@@ -61,15 +64,74 @@ namespace IdleAdventurer
 
         // Orders: "if CONDITION then ACTION", first match wins, checked on every one of the hero's turns.
         public const int RuleSlots = 6;
-        public const int IfAlways = 0, IfHealth50 = 1, IfHealth30 = 2, IfHealth15 = 3, IfCannotHurt = 4, IfChampion = 5, IfEnemyLow = 6, IfOff = 7;
-        public const int IfKinds = 8;
+        public const int IfAlways = 0, IfHealth50 = 1, IfHealth30 = 2, IfHealth15 = 3, IfCannotHurt = 4, IfChampion = 5, IfEnemyLow = 6, IfOff = 7,
+            IfCaster = 8, IfMagicka = 9;
+        public const int IfKinds = 10;
         public static readonly string[] IfNames = { "always", "my health is below 50%", "my health is below 30%", "my health is below 15%",
-            "my weapon cannot hurt it", "it is a champion or boss", "its health is below 30%", "(rule off)" };
-        public const int DoAttack = 0, DoPotion = 1, DoFlee = 2, DoPower = 3, DoGuard = 4;
-        public const int DoKinds = 5;
-        public static readonly string[] DoNames = { "attack", "drink a healing potion", "flee", "power attack", "guard" };
-        public static readonly int[] DefaultIf = { IfHealth30, IfHealth30, IfCannotHurt, IfAlways, IfOff, IfOff };
-        public static readonly int[] DefaultDo = { DoPotion, DoFlee, DoFlee, DoAttack, DoAttack, DoAttack };
+            "my weapon cannot hurt it", "it is a champion or boss", "its health is below 30%", "(rule off)", "it casts spells",
+            "my magicka is above half" };
+        // The order the orders screen steps through the conditions; "rule off" stays last.
+        public static readonly int[] IfOrder = { IfAlways, IfHealth50, IfHealth30, IfHealth15, IfCannotHurt, IfChampion, IfEnemyLow, IfCaster, IfMagicka, IfOff };
+        public const int DoAttack = 0, DoPotion = 1, DoFlee = 2, DoPower = 3, DoGuard = 4, DoCast = 5, DoHeal = 6, DoShield = 7, DoParalyse = 8, DoWard = 9;
+        public const int DoKinds = 10;
+        public static readonly string[] DoNames = { "attack", "drink a healing potion", "flee", "power attack", "guard",
+            "cast a damage spell", "cast Heal", "cast Shield", "cast Paralysis", "cast Spell Shield" };
+        public static readonly int[] DefaultIf = { IfHealth30, IfHealth50, IfHealth30, IfCannotHurt, IfCannotHurt, IfChampion };
+        public static readonly int[] DefaultDo = { DoPotion, DoHeal, DoFlee, DoCast, DoFlee, DoCast };
+        // The defaults before spells, so saves still using them get the new ones.
+        public static readonly int[] OldDefaultIf = { IfHealth30, IfHealth30, IfCannotHurt, IfAlways, IfOff, IfOff };
+        public static readonly int[] OldDefaultDo = { DoPotion, DoFlee, DoFlee, DoAttack, DoAttack, DoAttack };
+
+        // Spells. Names, schools, elements and magnitudes are the game's own (SPELLS.STD); a magnitude is
+        // low-high plus low-high again for every caster level. Shield's magnitude is raised: the game's 1-12 plus 1
+        // per level absorbs almost nothing here. Costs are ours, tied to the average magnitude.
+        public const int SpellDamage = 0, SpellHeal = 1, SpellShieldKind = 2, SpellParalyse = 3, SpellWard = 4;
+        public const int ElementFire = 0, ElementCold = 1, ElementPoison = 2, ElementShock = 3, ElementMagic = 4;
+        public static readonly string[] ElementNames = { "fire", "frost", "poison", "shock", "magic" };
+        public const int SpellShock = 0, SpellHealIndex = 5, SpellShieldIndex = 6, SpellParalysisIndex = 7, SpellWardIndex = 8;
+        public static readonly string[] SpellNames = { "Shock", "Wizard's Fire", "Ice Bolt", "Toxic Cloud", "Force Bolt", "Heal", "Shield", "Paralysis", "Spell Shield" };
+        public static readonly int[] SpellKind = { SpellDamage, SpellDamage, SpellDamage, SpellDamage, SpellDamage, SpellHeal, SpellShieldKind, SpellParalyse, SpellWard };
+        public static readonly int[] SpellElement = { ElementShock, ElementFire, ElementCold, ElementPoison, ElementMagic, -1, -1, -1, -1 };
+        public static readonly int[] SpellSchool = { (int)DFCareer.Skills.Destruction, (int)DFCareer.Skills.Destruction, (int)DFCareer.Skills.Destruction,
+            (int)DFCareer.Skills.Destruction, (int)DFCareer.Skills.Destruction, (int)DFCareer.Skills.Restoration, (int)DFCareer.Skills.Alteration,
+            (int)DFCareer.Skills.Alteration, (int)DFCareer.Skills.Thaumaturgy };
+        public static readonly int[] SpellBaseLow = { 1, 1, 1, 1, 1, 1, 5, 0, 0 };
+        public static readonly int[] SpellBaseHigh = { 20, 15, 35, 25, 30, 10, 15, 0, 0 };
+        public static readonly int[] SpellLevelLow = { 1, 1, 1, 1, 1, 5, 2, 0, 0 };
+        public static readonly int[] SpellLevelHigh = { 4, 4, 5, 5, 10, 5, 4, 0, 0 };
+        public static readonly int[] SpellPrice = { 0, 120, 900, 700, 3000, 300, 450, 1500, 1200 };
+        public const int SpellKinds = 9;
+
+        // What spells did to the current fight.
+        public const int StatusHidden = 1;          // the enemy is invisible or a chameleon: the hero's swings -30 to hit
+        public const int StatusEnemyWard = 2;       // the enemy's Spell Shield: the hero's spells do half
+        public const int StatusSilenced = 4;        // the hero cannot cast
+        public const int StatusWard = 8;            // the hero's Spell Shield: enemy spells resisted more, halved
+        public const int StatusParalysed = 16;      // the enemy was paralysed this fight (once per fight)
+
+        // Average magnitude of a spell at a caster level.
+        public static int SpellAverage(int spell, int level)
+        {
+            return (SpellBaseLow[spell] + SpellBaseHigh[spell] + (SpellLevelLow[spell] + SpellLevelHigh[spell]) * Mathf.Max(1, level)) / 2;
+        }
+
+        // Magicka for one cast: tied to the average magnitude, then lowered by the spell's school skill (a third off at 50).
+        public static int SpellCost(int spell, int level, int schoolSkill)
+        {
+            int cost;
+            switch (SpellKind[spell])
+            {
+                case SpellParalyse: cost = 15 + level; break;
+                case SpellWard: cost = 12 + level; break;
+                default: cost = 5 + SpellAverage(spell, level) * 2 / 5; break;
+            }
+            return Mathf.Max(1, cost * (150 - Mathf.Clamp(schoolSkill, 0, 100)) / 150);
+        }
+
+        public static int MaxMagicka(int intelligence, int level)
+        {
+            return intelligence + 4 * level;
+        }
 
         public static int PotionPrice(int level)
         {
@@ -77,6 +139,8 @@ namespace IdleAdventurer
         }
 
         public const int StatStrength = 0;
+        public const int StatIntelligence = 1;
+        public const int StatWillpower = 2;
         public const int StatAgility = 3;
         public const int StatEndurance = 4;
         public const int StatSpeed = 6;
@@ -210,6 +274,14 @@ namespace IdleAdventurer
         public int potionsDrunk;
         public int championsKilled;
         public int bossesKilled;
+        public int magicka = -1;            // -1 until first filled
+        public int magickaCarry;
+        public int[] spellsKnown;           // per IdleData spell: 1 when known
+        public int heroShield;              // damage the hero's Shield spell still absorbs this fight
+        public int fightStatus;             // IdleData.Status* bits for the current fight
+        public int enemyCasts;              // spells the enemy can still cast this fight
+        public int spellsCast;
+        public int enemySpellsCast;
 
         // This run and lifetime tallies.
         public int runKills;
@@ -231,6 +303,7 @@ namespace IdleAdventurer
         public int type;
         public int value;
         public string text;
+        public int element = -1;            // for spells: IdleData.Element*, or -1
     }
 
     public class EnemyInfo
@@ -265,6 +338,12 @@ namespace IdleAdventurer
             eventTotal++;
             if (events.Count > 400)
                 events.RemoveRange(0, 200);
+        }
+
+        public void EmitSpell(int type, string text, int value, int element)
+        {
+            Emit(type, text, value);
+            events[events.Count - 1].element = element;
         }
     }
 
@@ -436,11 +515,32 @@ namespace IdleAdventurer
                 s.travelSeconds = IdleData.TravelSeconds;
             if (s.startFloor < 1)
                 s.startFloor = 1;
-            if (s.ruleIf == null || s.ruleIf.Length != IdleData.RuleSlots || s.ruleDo == null || s.ruleDo.Length != IdleData.RuleSlots)
+            if (s.ruleIf == null || s.ruleIf.Length != IdleData.RuleSlots || s.ruleDo == null || s.ruleDo.Length != IdleData.RuleSlots
+                || (Same(s.ruleIf, IdleData.OldDefaultIf) && Same(s.ruleDo, IdleData.OldDefaultDo)))
             {
                 s.ruleIf = (int[])IdleData.DefaultIf.Clone();
                 s.ruleDo = (int[])IdleData.DefaultDo.Clone();
             }
+            if (s.spellsKnown == null || s.spellsKnown.Length != IdleData.SpellKinds)
+            {
+                int[] known = new int[IdleData.SpellKinds];
+                for (int i = 0; s.spellsKnown != null && i < s.spellsKnown.Length && i < known.Length; i++)
+                    known[i] = s.spellsKnown[i];
+                s.spellsKnown = known;
+            }
+            s.spellsKnown[IdleData.SpellShock] = 1;     // every hero starts with Shock
+            if (s.stats != null && s.stats.Length > IdleData.StatIntelligence && (s.magicka < 0 || s.magicka > MaxMagicka(s)))
+                s.magicka = MaxMagicka(s);
+        }
+
+        static bool Same(int[] a, int[] b)
+        {
+            if (a == null || b == null || a.Length != b.Length)
+                return false;
+            for (int i = 0; i < a.Length; i++)
+                if (a[i] != b[i])
+                    return false;
+            return true;
         }
 
         public static bool Usable(IdleSave s)
@@ -717,6 +817,16 @@ namespace IdleAdventurer
         // Between rooms the hero patches themselves up: Medical decides how fast.
         static void Rest(IdleSave s, int ticks)
         {
+            // Magicka comes back while walking: 1.5% a second, more with Willpower.
+            int most = MaxMagicka(s);
+            if (s.magicka < most)
+            {
+                s.magickaCarry += ticks * most * (15 + s.stats[IdleData.StatWillpower] / 4);
+                int perUnit = 1000 * IdleData.TicksPerSecond;
+                int gain = s.magickaCarry / perUnit;
+                s.magickaCarry -= gain * perUnit;
+                s.magicka = Mathf.Min(most, s.magicka + gain);
+            }
             if (s.health >= s.maxHealth)
                 return;
             int perSecondPerMille = 10 + s.skills[(int)DFCareer.Skills.Medical] / 2;
@@ -817,6 +927,8 @@ namespace IdleAdventurer
                 s.enemyTraits = 1 << Range(s, 0, IdleData.TraitKinds - 1);
             }
             s.guarding = 0;
+            s.heroShield = 0;
+            s.fightStatus = 0;
             s.enemyOver = Mathf.Max(0, index - (table.Length - 1));
             index = Mathf.Min(index, table.Length - 1);
             s.enemyId = (int)table[index];
@@ -840,6 +952,7 @@ namespace IdleAdventurer
                 health = health * 8 / 5;
             s.enemyMaxHealth = Mathf.Max(1, health);
             s.enemyHealth = s.enemyMaxHealth;
+            s.enemyCasts = (EnemySpells(e, EnemyLevel(s, e)).Length > 0) ? 1 + EnemyLevel(s, e) / 6 + (((s.enemyTraits & IdleData.TraitBoss) != 0) ? 2 : 0) : 0;
 
             int enemySpeed = (e.career != null) ? e.career.Speed : 50;
             s.heroTimer = Range(s, 3, IdleData.AttackInterval(s.stats[IdleData.StatSpeed]));
@@ -877,6 +990,8 @@ namespace IdleAdventurer
                 case IdleData.IfCannotHurt: return !CanHurt(w, e);
                 case IdleData.IfChampion: return IsChampion(s);
                 case IdleData.IfEnemyLow: return s.enemyHealth * 100 < s.enemyMaxHealth * 30;
+                case IdleData.IfCaster: return EnemySpells(e, EnemyLevel(s, e)).Length > 0;
+                case IdleData.IfMagicka: return s.magicka * 2 > MaxMagicka(s);
             }
             return false;
         }
@@ -892,9 +1007,342 @@ namespace IdleAdventurer
                 int action = s.ruleDo[i];
                 if (action == IdleData.DoPotion && (s.potions <= 0 || s.health >= s.maxHealth))
                     continue;
+                if (action >= IdleData.DoCast && SpellFor(w, e, action) < 0)
+                    continue;
                 return action;
             }
             return IdleData.DoAttack;
+        }
+
+        // ------------------------------------------------------------------ magic
+
+        // Enemy spells: the game's spell IDs from its enemy spell lists, reduced to what they do here.
+        const int EDamage = 0, EDrain = 1, EParalyse = 2, ESilence = 3, EAbsorb = 4, EHidden = 5, EWard = 6;
+        static readonly int[] enemySpellIds = { 0x06, 0x07, 0x08, 0x0E, 0x10, 0x14, 0x16, 0x17, 0x19, 0x1C, 0x1D, 0x1F, 0x22, 0x2C, 0x32, 0x33, 0x34, 0x43 };
+        static readonly string[] enemySpellNames = { "Invisibility", "Wizard's Fire", "Shock", "Fireball", "Ice Bolt", "Ice Storm", "Spell Shield",
+            "Silence", "Fire Storm", "Far Silence", "Toxic Cloud", "Lightning", "Wizard Rend", "Chameleon", "Paralysis", "Sleep", "Vampiric Touch", "Energy Leech" };
+        static readonly int[] enemySpellKinds = { EHidden, EDamage, EDamage, EDamage, EDamage, EDamage, EWard, ESilence, EDamage, ESilence, EDamage,
+            EDamage, EDrain, EHidden, EParalyse, EParalyse, EAbsorb, EAbsorb };
+        static readonly int[] enemySpellElements = { -1, 0, 3, 0, 1, 1, -1, -1, 0, -1, 2, 3, 4, -1, -1, -1, 4, 4 };
+        // low, high, per-level low, per-level high
+        static readonly int[] enemySpellMagnitudes = { 0,0,0,0, 1,15,1,4, 1,20,1,4, 1,1,1,7, 1,35,1,5, 1,30,1,5, 0,0,0,0, 0,0,0,0, 1,20,1,5, 0,0,0,0,
+            1,25,1,5, 1,25,1,5, 1,14,1,1, 0,0,0,0, 0,0,0,0, 0,0,0,0, 1,15,1,5, 1,10,1,3 };
+
+        static readonly int[] impSpells = { 0x07, 0x1D, 0x2C };
+        static readonly int[] ghostSpells = { 0x22 };
+        static readonly int[] orcShamanSpells = { 0x06, 0x07, 0x16, 0x19, 0x1F };
+        static readonly int[] wraithSpells = { 0x1C, 0x1F };
+        static readonly int[] frostDaedraSpells = { 0x10, 0x14 };
+        static readonly int[] fireDaedraSpells = { 0x0E, 0x19 };
+        static readonly int[] daedrothSpells = { 0x16, 0x17, 0x1F };
+        static readonly int[] vampireSpells = { 0x33 };
+        static readonly int[] seducerSpells = { 0x34, 0x43 };
+        static readonly int[] vampireAncientSpells = { 0x08, 0x32 };
+        static readonly int[] daedraLordSpells = { 0x08, 0x0E, 0x43 };
+        static readonly int[] lichSpells = { 0x08, 0x0E, 0x22 };
+        static readonly int[] ancientLichSpells = { 0x08, 0x0E, 0x1D, 0x1F, 0x22 };
+        static readonly int[] noSpells = new int[0];
+        static readonly int[][] classSpells = { frostDaedraSpells, daedrothSpells, orcShamanSpells, vampireAncientSpells, daedraLordSpells, lichSpells, ancientLichSpells };
+
+        // The game's own spell list for this enemy (EnemyEntity), without the ones that do nothing here
+        // (Free Action, Balyna's Antidote).
+        public static int[] EnemySpells(EnemyInfo e, int level)
+        {
+            if (e.isClass)
+                return e.def.CastsMagic ? classSpells[Mathf.Clamp(level / 3, 0, classSpells.Length - 1)] : noSpells;
+            switch ((MonsterCareers)e.id)
+            {
+                case MonsterCareers.Imp: return impSpells;
+                case MonsterCareers.Ghost: return ghostSpells;
+                case MonsterCareers.OrcShaman: return orcShamanSpells;
+                case MonsterCareers.Wraith: return wraithSpells;
+                case MonsterCareers.FrostDaedra: return frostDaedraSpells;
+                case MonsterCareers.FireDaedra: return fireDaedraSpells;
+                case MonsterCareers.Daedroth: return daedrothSpells;
+                case MonsterCareers.Vampire: return vampireSpells;
+                case MonsterCareers.DaedraSeducer: return seducerSpells;
+                case MonsterCareers.VampireAncient: return vampireAncientSpells;
+                case MonsterCareers.DaedraLord: return daedraLordSpells;
+                case MonsterCareers.Lich: return lichSpells;
+                case MonsterCareers.AncientLich: return ancientLichSpells;
+            }
+            return noSpells;
+        }
+
+        public static int MaxMagicka(IdleSave s)
+        {
+            return IdleData.MaxMagicka(s.stats[IdleData.StatIntelligence], s.level);
+        }
+
+        public static int Cost(IdleSave s, int spell)
+        {
+            return IdleData.SpellCost(spell, s.level, s.skills[IdleData.SpellSchool[spell]]);
+        }
+
+        // Percent of a spell's damage an enemy takes, from its career's tolerances.
+        public static int Tolerance(EnemyInfo e, int element)
+        {
+            if (e.career == null || element < 0)
+                return 100;
+            DFCareer.Tolerance t;
+            switch (element)
+            {
+                case IdleData.ElementFire: t = e.career.Fire; break;
+                case IdleData.ElementCold: t = e.career.Frost; break;
+                case IdleData.ElementPoison: t = e.career.Poison; break;
+                case IdleData.ElementShock: t = e.career.Shock; break;
+                default: t = e.career.Magic; break;
+            }
+            switch (t)
+            {
+                case DFCareer.Tolerance.Immune: return 0;
+                case DFCareer.Tolerance.Resistant: return 50;
+                case DFCareer.Tolerance.LowTolerance: return 150;
+                case DFCareer.Tolerance.CriticalWeakness: return 200;
+            }
+            return 100;
+        }
+
+        static int Magnitude(IdleSave s, int low, int high, int levelLow, int levelHigh, int level)
+        {
+            return Range(s, low, high) + Range(s, levelLow * level, levelHigh * level);
+        }
+
+        // Which spell an order means right now, or -1 when it cannot be cast (unknown, no magicka, silenced, pointless).
+        public static int SpellFor(IdleWorld w, EnemyInfo e, int action)
+        {
+            IdleSave s = w.s;
+            if ((s.fightStatus & IdleData.StatusSilenced) != 0)
+                return -1;
+            int spell = -1;
+            switch (action)
+            {
+                case IdleData.DoCast:
+                    int best = 0;
+                    for (int i = 0; i < IdleData.SpellKinds; i++)
+                    {
+                        if (IdleData.SpellKind[i] != IdleData.SpellDamage || s.spellsKnown[i] == 0 || s.magicka < Cost(s, i))
+                            continue;
+                        int worth = IdleData.SpellAverage(i, s.level) * Tolerance(e, IdleData.SpellElement[i]);
+                        if (worth > best)
+                        {
+                            best = worth;
+                            spell = i;
+                        }
+                    }
+                    return spell;
+                case IdleData.DoHeal:
+                    spell = IdleData.SpellHealIndex;
+                    if (s.health >= s.maxHealth)
+                        return -1;
+                    break;
+                case IdleData.DoShield:
+                    spell = IdleData.SpellShieldIndex;
+                    if (s.heroShield > 0)
+                        return -1;
+                    break;
+                case IdleData.DoParalyse:
+                    spell = IdleData.SpellParalysisIndex;
+                    if ((s.fightStatus & IdleData.StatusParalysed) != 0 || (e.career != null && e.career.Paralysis == DFCareer.Tolerance.Immune))
+                        return -1;
+                    break;
+                case IdleData.DoWard:
+                    spell = IdleData.SpellWardIndex;
+                    if ((s.fightStatus & IdleData.StatusWard) != 0)
+                        return -1;
+                    break;
+            }
+            if (spell < 0 || s.spellsKnown[spell] == 0 || s.magicka < Cost(s, spell))
+                return -1;
+            return spell;
+        }
+
+        static void Cast(IdleWorld w, EnemyInfo e, int spell)
+        {
+            IdleSave s = w.s;
+            if (IdleData.SpellKind[spell] == IdleData.SpellHeal)
+            {
+                CastHeal(w);
+                return;
+            }
+            s.magicka -= Cost(s, spell);
+            s.spellsCast++;
+            Tally(w, IdleData.SpellSchool[spell]);
+            string name = IdleData.SpellNames[spell];
+            switch (IdleData.SpellKind[spell])
+            {
+                case IdleData.SpellDamage:
+                {
+                    int element = IdleData.SpellElement[spell];
+                    int damage = Magnitude(s, IdleData.SpellBaseLow[spell], IdleData.SpellBaseHigh[spell], IdleData.SpellLevelLow[spell],
+                        IdleData.SpellLevelHigh[spell], s.level) * Tolerance(e, element) / 100;
+                    if ((s.fightStatus & IdleData.StatusEnemyWard) != 0)
+                        damage /= 2;
+                    s.enemyHealth -= damage;
+                    if (w.record)
+                        w.EmitSpell(IdleData.EvCast, s.heroName + " casts " + name + " at the " + Foe(s, e) + " for " + damage
+                            + ((Tolerance(e, element) < 100) ? " (it resists " + IdleData.ElementNames[element] + ")" : (Tolerance(e, element) > 100) ? " (weak to " + IdleData.ElementNames[element] + ")" : ""),
+                            damage, element);
+                    if (s.enemyHealth <= 0)
+                        Kill(w, e);
+                    break;
+                }
+                case IdleData.SpellShieldKind:
+                    s.heroShield = Magnitude(s, IdleData.SpellBaseLow[spell], IdleData.SpellBaseHigh[spell], IdleData.SpellLevelLow[spell],
+                        IdleData.SpellLevelHigh[spell], s.level);
+                    if (w.record)
+                        w.EmitSpell(IdleData.EvCastSelf, s.heroName + " casts Shield (absorbs " + s.heroShield + ")", 0, IdleData.ElementMagic);
+                    break;
+                case IdleData.SpellWard:
+                    s.fightStatus |= IdleData.StatusWard;
+                    if (w.record)
+                        w.EmitSpell(IdleData.EvCastSelf, s.heroName + " casts Spell Shield", 0, IdleData.ElementMagic);
+                    break;
+                case IdleData.SpellParalyse:
+                {
+                    s.fightStatus |= IdleData.StatusParalysed;
+                    int chance = 55 + s.skills[IdleData.SpellSchool[spell]] / 4 - EnemyLevel(s, e) * 2;
+                    if (e.career != null && e.career.Paralysis == DFCareer.Tolerance.Resistant)
+                        chance /= 2;
+                    if ((s.enemyTraits & IdleData.TraitBoss) != 0)
+                        chance /= 2;
+                    bool held = Roll(s, Mathf.Clamp(chance, 5, 90));
+                    if (held)
+                        s.enemyTimer += 2 * EnemyInterval(s, e);
+                    if (w.record)
+                        w.EmitSpell(IdleData.EvCast, s.heroName + " casts Paralysis: the " + Foe(s, e) + (held ? " is held fast" : " shakes it off"), 0, IdleData.ElementMagic);
+                    break;
+                }
+            }
+        }
+
+        static void CastHeal(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            int spell = IdleData.SpellHealIndex;
+            s.magicka -= Cost(s, spell);
+            s.spellsCast++;
+            Tally(w, IdleData.SpellSchool[spell]);
+            int heal = Mathf.Max(1, Magnitude(s, IdleData.SpellBaseLow[spell], IdleData.SpellBaseHigh[spell], IdleData.SpellLevelLow[spell],
+                IdleData.SpellLevelHigh[spell], s.level));
+            s.health = Mathf.Min(s.maxHealth, s.health + heal);
+            if (w.record)
+                w.EmitSpell(IdleData.EvCastSelf, s.heroName + " casts Heal (" + s.health + "/" + s.maxHealth + ")", heal, IdleData.ElementMagic);
+        }
+
+        // The hero's Shield takes damage first.
+        static int Absorb(IdleSave s, int damage)
+        {
+            int absorbed = Mathf.Min(s.heroShield, Mathf.Max(0, damage));
+            s.heroShield -= absorbed;
+            return absorbed;
+        }
+
+        // The enemy casts one of its spells instead of attacking. False when it has nothing useful to cast.
+        static bool EnemyCasts(IdleWorld w, EnemyInfo e)
+        {
+            IdleSave s = w.s;
+            int level = EnemyLevel(s, e);
+            int[] list = EnemySpells(e, level);
+            if (list.Length == 0)
+                return false;
+            int id = list[Range(s, 0, list.Length - 1)];
+            int k = Array.IndexOf(enemySpellIds, id);
+            if (k < 0)
+                return false;
+            int kind = enemySpellKinds[k];
+            if ((kind == EHidden && (s.fightStatus & IdleData.StatusHidden) != 0) || (kind == EWard && (s.fightStatus & IdleData.StatusEnemyWard) != 0)
+                || (kind == ESilence && (s.fightStatus & IdleData.StatusSilenced) != 0))
+                return false;
+            s.enemyCasts--;
+            s.enemySpellsCast++;
+            string who = "The " + Foe(s, e);
+            string name = enemySpellNames[k];
+            int element = enemySpellElements[k];
+            if (kind == EHidden || kind == EWard)
+            {
+                s.fightStatus |= (kind == EHidden) ? IdleData.StatusHidden : IdleData.StatusEnemyWard;
+                if (w.record)
+                    w.EmitSpell(IdleData.EvEnemyCast, who + " casts " + name + ((kind == EHidden) ? ": harder to hit" : ": the hero's spells do half"), 0, IdleData.ElementMagic);
+                return true;
+            }
+
+            // The hero's saving throw: Willpower and Luck, much better under Spell Shield. Effects that are not
+            // damage are resisted twice as often.
+            bool ward = (s.fightStatus & IdleData.StatusWard) != 0;
+            int save = 10 + (s.stats[IdleData.StatWillpower] - 50) / 2 + s.stats[IdleData.StatLuck] / 10 + (ward ? 40 : 0);
+            if (kind != EDamage && kind != EAbsorb)
+                save *= 2;
+            if (Roll(s, Mathf.Clamp(save, 3, 90)))
+            {
+                if (w.record)
+                    w.EmitSpell(IdleData.EvEnemyCast, who + " casts " + name + ", resisted", 0, (element >= 0) ? element : IdleData.ElementMagic);
+                return true;
+            }
+            if (kind == EParalyse)
+            {
+                s.heroTimer += 2 * IdleData.AttackInterval(s.stats[IdleData.StatSpeed]);
+                if (w.record)
+                    w.EmitSpell(IdleData.EvEnemyCast, who + " casts " + name + ": " + s.heroName + " cannot move", 0, IdleData.ElementMagic);
+                return true;
+            }
+            if (kind == ESilence)
+            {
+                s.fightStatus |= IdleData.StatusSilenced;
+                if (w.record)
+                    w.EmitSpell(IdleData.EvEnemyCast, who + " casts " + name + ": " + s.heroName + " cannot cast", 0, IdleData.ElementMagic);
+                return true;
+            }
+            int m = k * 4;
+            int amount = Magnitude(s, enemySpellMagnitudes[m], enemySpellMagnitudes[m + 1], enemySpellMagnitudes[m + 2], enemySpellMagnitudes[m + 3], level);
+            if (ward)
+                amount /= 2;
+            if (kind == EDrain)
+            {
+                amount = Mathf.Min(amount, s.magicka);
+                s.magicka -= amount;
+                if (w.record)
+                    w.EmitSpell(IdleData.EvEnemyCast, who + " casts " + name + ": " + amount + " magicka drained", 0, IdleData.ElementMagic);
+                return true;
+            }
+            int absorbed = Absorb(s, amount);
+            amount -= absorbed;
+            s.health -= amount;
+            if (kind == EAbsorb)
+                s.enemyHealth = Mathf.Min(s.enemyMaxHealth, s.enemyHealth + amount);
+            if (w.record)
+                w.EmitSpell(IdleData.EvEnemyCast, who + " casts " + name + " for " + amount + ((absorbed > 0) ? " (Shield took " + absorbed + ")" : "")
+                    + " (" + Mathf.Max(0, s.health) + "/" + s.maxHealth + ")", amount, element);
+            if (s.health <= 0)
+                Die(w, e);
+            return true;
+        }
+
+        public static bool LearnSpell(IdleWorld w, int spell)
+        {
+            IdleSave s = w.s;
+            if (spell < 0 || spell >= IdleData.SpellKinds || s.spellsKnown[spell] != 0 || s.gold < IdleData.SpellPrice[spell])
+                return false;
+            s.gold -= IdleData.SpellPrice[spell];
+            s.spellsKnown[spell] = 1;
+            return true;
+        }
+
+        // What a spell does at the hero's level, for the spellbook.
+        public static string SpellText(IdleSave s, int spell)
+        {
+            int level = Mathf.Max(1, s.level);
+            int low = IdleData.SpellBaseLow[spell] + IdleData.SpellLevelLow[spell] * level;
+            int high = IdleData.SpellBaseHigh[spell] + IdleData.SpellLevelHigh[spell] * level;
+            switch (IdleData.SpellKind[spell])
+            {
+                case IdleData.SpellDamage: return low + "-" + high + " " + IdleData.ElementNames[IdleData.SpellElement[spell]] + " damage";
+                case IdleData.SpellHeal: return "heals " + low + "-" + high;
+                case IdleData.SpellShieldKind: return "absorbs " + low + "-" + high + " damage for the rest of the fight";
+                case IdleData.SpellParalyse: return "the enemy loses two attacks; once a fight, weaker on strong enemies and bosses";
+                case IdleData.SpellWard: return "for the fight: enemy spells are resisted far more often and do half";
+            }
+            return "";
         }
 
         static void Drink(IdleWorld w)
@@ -942,6 +1390,11 @@ namespace IdleAdventurer
             if (action == IdleData.DoPotion)
             {
                 Drink(w);
+                return;
+            }
+            if (action >= IdleData.DoCast)
+            {
+                Cast(w, e, SpellFor(w, e, action));
                 return;
             }
             if (action == IdleData.DoGuard)
@@ -994,6 +1447,8 @@ namespace IdleAdventurer
                 chance -= 20;
             if ((s.enemyTraits & IdleData.TraitArmoured) != 0)
                 chance -= 25;
+            if ((s.fightStatus & IdleData.StatusHidden) != 0)
+                chance -= 30;
 
             Tally(w, skill);
             bool hit = Hits(s, chance, enemyArmor, s.stats[IdleData.StatLuck] - enemyLuck, s.stats[IdleData.StatAgility] - enemyAgility,
@@ -1045,6 +1500,12 @@ namespace IdleAdventurer
             s.enemyTimer = EnemyInterval(s, e);
             if ((s.enemyTraits & IdleData.TraitRegenerating) != 0 && s.enemyHealth < s.enemyMaxHealth)
                 s.enemyHealth = Mathf.Min(s.enemyMaxHealth, s.enemyHealth + Mathf.Max(1, s.enemyMaxHealth / 25));
+
+            if (s.enemyCasts > 0 && Roll(s, 35) && EnemyCasts(w, e))
+            {
+                s.guarding = 0;
+                return;
+            }
 
             int skill = Mathf.Min(100, EnemyLevel(s, e) * 5 + 30);
             if (s.guarding != 0)
@@ -1101,9 +1562,12 @@ namespace IdleAdventurer
             }
             Wear(s, onShield ? shield : w.gear[part], damage);
 
+            int absorbed = Absorb(s, damage);
+            damage -= absorbed;
             s.health -= damage;
             if (w.record)
-                w.Emit(IdleData.EvEnemyHit, "The " + Foe(s, e) + " hits for " + damage + " (" + Mathf.Max(0, s.health) + "/" + s.maxHealth + ")", damage);
+                w.Emit(IdleData.EvEnemyHit, "The " + Foe(s, e) + " hits for " + damage + ((absorbed > 0) ? " (Shield took " + absorbed + ")" : "")
+                    + " (" + Mathf.Max(0, s.health) + "/" + s.maxHealth + ")", damage);
             if (s.health <= 0)
                 Die(w, e);
         }
@@ -1132,7 +1596,12 @@ namespace IdleAdventurer
             s.enemyId = -1;
             s.enemyTraits = 0;
 
-            // Hurt between fights: a potion first, home if that is not enough.
+            // Hurt between fights: Heal if known, then potions, home if that is not enough.
+            s.heroShield = 0;
+            s.fightStatus = 0;
+            while (s.health * 100 < s.maxHealth * s.retreatPercent && s.spellsKnown[IdleData.SpellHealIndex] != 0
+                && s.magicka >= Cost(s, IdleData.SpellHealIndex))
+                CastHeal(w);
             while (s.health * 100 < s.maxHealth * s.retreatPercent && s.potions > 0)
                 Drink(w);
             if (s.health * 100 < s.maxHealth * s.retreatPercent)
@@ -1447,6 +1916,8 @@ namespace IdleAdventurer
             s.recall = 0;
             s.health = s.maxHealth;
             s.healCarry = 0;
+            s.magicka = MaxMagicka(s);
+            s.magickaCarry = 0;
 
             int sold = 0;
             int equipped = 0;
@@ -1519,7 +1990,7 @@ namespace IdleAdventurer
                     gear += (gear.Length > 0 ? ", " : "") + w.gear[i].LongName;
             return "level " + s.level + ", health " + s.maxHealth + ", gold " + s.gold + ", runs " + s.expeditions + " (cleared " + s.clears
                 + ", retreated " + s.retreats + ", died " + s.deaths + "), kills " + s.kills + ", deepest floor " + s.deepestFloor
-                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
+                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", spells " + s.spellsCast + "/" + s.enemySpellsCast + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
                 + (long)(s.goldEarned / Mathf.Max(0.05f, s.clock / 36000f)) + " | " + gear;
         }
 

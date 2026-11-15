@@ -48,7 +48,10 @@ namespace IdleAdventurer
             if (row < IdleData.RuleSlots)
             {
                 if (column == 0)
-                    s.ruleIf[row] = (s.ruleIf[row] + by + IdleData.IfKinds) % IdleData.IfKinds;
+                {
+                    int at = Mathf.Max(0, Array.IndexOf(IdleData.IfOrder, s.ruleIf[row]));
+                    s.ruleIf[row] = IdleData.IfOrder[(at + by + IdleData.IfOrder.Length) % IdleData.IfOrder.Length];
+                }
                 else
                     s.ruleDo[row] = (s.ruleDo[row] + by + IdleData.DoKinds) % IdleData.DoKinds;
             }
@@ -235,14 +238,15 @@ namespace IdleAdventurer
                     "Flee: try to run home. Speed and luck decide; a failed try costs the turn.",
                     "Power attack: 20 less to hit, half again the damage.",
                     "Guard: no attack, and the enemy's next attack is 40 less likely to land.",
+                    "Spells (L in the hub to buy them): a damage spell picks the strongest known one this enemy does not resist. A spell is skipped when it is not known, magicka is short, or it would do nothing.",
                     "",
                     "Champions have one trait, bosses two:",
                     "Swift attacks more often. Armoured is harder to hit. Regenerating heals as it fights. Venomous and Enraged hit harder. Vampiric heals from its hits.",
                     "",
-                    "Potions: " + s.potions + " carried now. You have " + s.gold + " gold.",
+                    "Potions: " + s.potions + " carried now. Magicka " + s.magicka + "/" + IdleSim.MaxMagicka(s) + ". You have " + s.gold + " gold.",
                 };
                 for (int i = 0; i < help.Length; i++)
-                    cy = Wrap(help[i], cx, cy, cw, sc * 0.85f, line * 0.9f, (i >= 6) ? IdleUi.Muted : IdleUi.White);
+                    cy = Wrap(help[i], cx, cy, cw, sc * 0.85f, line * 0.9f, (i >= 7) ? IdleUi.Muted : IdleUi.White);
 
                 float gap = Mathf.Round(line * 0.3f);
                 float bx = x;

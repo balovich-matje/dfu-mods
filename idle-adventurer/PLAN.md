@@ -62,7 +62,24 @@ Status: M0 (spike) and M1 (simulation core, balance pass) are done. Decisions al
     sprite 25% larger, three loot rolls and a magic item.
   - *Test:* first ten runs, 40 heroes: 0.6 deaths with orders and potions, 2.9 with neither. 200 runs: level 19,
     floor 30, 42 deaths (bosses bite late).
-  - *Still open in M4:* spells (hero and enemy casters), resistances, material warnings outside the map card.
+- **M4, spells (`src/IdleSpells.cs`, L in the hub):**
+  - *Hero spells:* Shock (known from the start), Wizard's Fire, Ice Bolt, Toxic Cloud, Force Bolt, Heal, Shield,
+    Paralysis, Spell Shield. Names, schools, elements and magnitudes from SPELLS.STD (Shield's raised); bought
+    once from the spellbook screen (120 to 3000 gold). Cost is ours: tied to average magnitude, lowered by the
+    school skill, which every cast trains.
+  - *Magicka:* Intelligence + 4 per level. Full in town, +1.5% a second (more with Willpower) while walking.
+  - *Orders:* new actions cast a damage spell (the strongest known one the enemy does not resist, from its
+    career's tolerances), cast Heal / Shield / Paralysis / Spell Shield; new conditions "it casts spells" and
+    "my magicka is above half". New defaults add Heal below 50% and damage spells when the weapon cannot hurt
+    and on champions; saves still on the old defaults are moved to the new ones. Between fights Heal comes
+    before potions.
+  - *Enemy casters:* the game's own enemy spell lists (EnemyEntity), reduced to damage, drain magicka,
+    paralyse, silence, absorb health, invisibility and Spell Shield. 35% of their turns while casts last
+    (1 + level/6, bosses +2). Spells skip armour; the hero's Willpower and Luck give a saving throw, much better
+    under Spell Shield; Shield absorbs them first.
+  - *Test:* first ten runs, 40 heroes: 0.5 deaths (0.3 and floor 6.8 knowing every spell). 200 runs: level 21,
+    floor 32, 56 deaths, 2669 spells cast against 400 enemy spells.
+  - *Still open in M4:* racial resistances, material warnings outside the map card.
 - **Blocks:** all 93 "N" blocks give a route (140 to 430 m) when tested one by one with B in the view. A rejected
   block must be destroyed at once (`DestroyImmediate`): left until the end of the frame, its colliders end up in
   the next block's navmesh and the hero walks in the void where it used to be.

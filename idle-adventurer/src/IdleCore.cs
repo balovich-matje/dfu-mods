@@ -221,8 +221,12 @@ namespace IdleAdventurer
                 case IdleData.EvLevel:
                 case IdleData.EvSkill:
                 case IdleData.EvPotion:
+                case IdleData.EvCastSelf:
                     return Good;
+                case IdleData.EvCast:
+                    return Blue;
                 case IdleData.EvEnemyHit:
+                case IdleData.EvEnemyCast:
                 case IdleData.EvDied:
                     return Bad;
                 case IdleData.EvLoot:
@@ -399,6 +403,11 @@ namespace IdleAdventurer
                 DaggerfallUI.UIManager.PushWindow(new IdleOrdersWindow(DaggerfallUI.UIManager, this));
                 return;
             }
+            if (Input.GetKeyDown(KeyCode.L) || click == HubCanvas.BtnSpells)
+            {
+                DaggerfallUI.UIManager.PushWindow(new IdleSpellsWindow(DaggerfallUI.UIManager, this));
+                return;
+            }
             if (Input.GetKeyDown(KeyCode.K) || click == HubCanvas.BtnSkip)
                 s.skipCleared = (s.skipCleared == 0) ? 1 : 0;
             if (Input.GetKeyDown(KeyCode.C) || click == HubCanvas.BtnHero)
@@ -450,7 +459,7 @@ namespace IdleAdventurer
 
         class HubCanvas : BaseScreenComponent
         {
-            public const int BtnGo = 1, BtnView = 2, BtnRepeat = 3, BtnDeeper = 4, BtnLess = 5, BtnMore = 6, BtnSpeed = 7, BtnTest = 8, BtnBack = 9, BtnHero = 10, BtnMap = 11, BtnSkip = 12, BtnOrders = 13;
+            public const int BtnGo = 1, BtnView = 2, BtnRepeat = 3, BtnDeeper = 4, BtnLess = 5, BtnMore = 6, BtnSpeed = 7, BtnTest = 8, BtnBack = 9, BtnHero = 10, BtnMap = 11, BtnSkip = 12, BtnOrders = 13, BtnSpells = 14;
             public string[] Report;
             public readonly IdleButtons Buttons = new IdleButtons();
 
@@ -515,8 +524,13 @@ namespace IdleAdventurer
                     case IdleData.EvKill:
                     case IdleData.EvLevel:
                     case IdleData.EvSkill:
+                    case IdleData.EvPotion:
+                    case IdleData.EvCastSelf:
                         return Good;
+                    case IdleData.EvCast:
+                        return Blue;
                     case IdleData.EvEnemyHit:
+                    case IdleData.EvEnemyCast:
                     case IdleData.EvDied:
                         return Bad;
                     case IdleData.EvLoot:
@@ -559,10 +573,11 @@ namespace IdleAdventurer
                 Text("Idle Adventurer", x, y, sc * 1.4f, DaggerfallUI.DaggerfallDefaultTextColor);
                 y += line * 1.5f;
 
-                Text(s.heroName + ", level " + s.level + "    Gold " + s.gold + "    Health " + s.health + "/" + s.maxHealth + "    Potions " + s.potions
-                    + "/" + s.potionsToCarry, x, y, sc, White);
+                Text(s.heroName + ", level " + s.level + "    Gold " + s.gold + "    Health " + s.health + "/" + s.maxHealth + "    Magicka " + s.magicka + "/" + IdleSim.MaxMagicka(s)
+                    + "    Potions " + s.potions + "/" + s.potionsToCarry, x, y, sc, White);
                 y += line;
                 Bar(new Rect(x, y, inner * 0.4f, Mathf.Round(line * 0.3f)), (float)s.health / Mathf.Max(1, s.maxHealth), Bad);
+                Bar(new Rect(x + inner * 0.42f, y, inner * 0.2f, Mathf.Round(line * 0.3f)), (float)s.magicka / Mathf.Max(1, IdleSim.MaxMagicka(s)), Blue);
                 y += line * 0.6f;
 
                 string gear = "";
@@ -611,6 +626,7 @@ namespace IdleAdventurer
                 bx += Buttons.Add(BtnHero, "Hero and shop (C)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnMap, "Destination (M)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnOrders, "Orders (O)", bx, bottom, tall, false) + gap;
+                bx += Buttons.Add(BtnSpells, "Spells (L)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnSpeed, "Speed " + IdleClock.Speed + "x (F)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnTest, "Test (T)", bx, bottom, tall, false) + gap;
                 Buttons.Add(BtnBack, "Back (Esc)", bx, bottom, tall, false);
@@ -735,6 +751,27 @@ namespace IdleAdventurer
                 }
                 lines.Add("Same, no potions and no orders: " + (bareDeaths / (float)heroes).ToString("0.0") + " deaths, level "
                     + (bareLevels / (float)heroes).ToString("0.0") + ", deepest floor " + (bareFloors / (float)heroes).ToString("0.0"));
+
+                // The same 40 heroes knowing every spell from the start, with the default orders.
+                int mageDeaths = 0, mageLevels = 0, mageFloors = 0, mageCasts = 0, enemyCasts = 0;
+                for (int seed = 1; seed <= heroes; seed++)
+                {
+                    IdleWorld mage = IdleSim.NewHero(seed * 104729, "Test");
+                    mage.s.autoRepeat = 1;
+                    for (int i = 0; i < IdleData.SpellKinds; i++)
+                        mage.s.spellsKnown[i] = 1;
+                    mage.stopAfter = 10;
+                    for (int guard = 0; guard < 400 && mage.s.expeditions < 10; guard++)
+                        IdleSim.Advance(mage, 36000);
+                    mageDeaths += mage.s.deaths;
+                    mageLevels += mage.s.level;
+                    mageFloors += mage.s.deepestFloor;
+                    mageCasts += mage.s.spellsCast;
+                    enemyCasts += mage.s.enemySpellsCast;
+                }
+                lines.Add("Same, knowing every spell: " + (mageDeaths / (float)heroes).ToString("0.0") + " deaths, level "
+                    + (mageLevels / (float)heroes).ToString("0.0") + ", deepest floor " + (mageFloors / (float)heroes).ToString("0.0")
+                    + ", " + (mageCasts / heroes) + " spells cast, " + (enemyCasts / heroes) + " enemy spells");
 
                 int[] marks = { 10, 50, 200 };
                 for (int i = 0; i < marks.Length; i++)
