@@ -45,6 +45,36 @@ namespace IdleAdventurer
         public const int EvHome = 11;
         public const int EvLevel = 12;
         public const int EvSkill = 13;
+        public const int EvPotion = 14;
+
+        // Champion and boss traits, as bits in IdleSave.enemyTraits.
+        public const int TraitSwift = 1;            // attacks 40% more often
+        public const int TraitArmoured = 2;         // the hero's chance to hit is 25 lower
+        public const int TraitRegenerating = 4;     // heals 4% of its health every time it attacks
+        public const int TraitVenomous = 8;         // hits do 40% more damage
+        public const int TraitVampiric = 16;        // heals half the damage it does
+        public const int TraitEnraged = 32;         // does 60% more damage below half health
+        public const int TraitBoss = 64;
+        public const int TraitKinds = 6;
+        public static readonly string[] TraitNames = { "Swift", "Armoured", "Regenerating", "Venomous", "Vampiric", "Enraged" };
+        public const int BossEvery = 5;             // the last fight of every fifth floor is a boss
+
+        // Orders: "if CONDITION then ACTION", first match wins, checked on every one of the hero's turns.
+        public const int RuleSlots = 6;
+        public const int IfAlways = 0, IfHealth50 = 1, IfHealth30 = 2, IfHealth15 = 3, IfCannotHurt = 4, IfChampion = 5, IfEnemyLow = 6, IfOff = 7;
+        public const int IfKinds = 8;
+        public static readonly string[] IfNames = { "always", "my health is below 50%", "my health is below 30%", "my health is below 15%",
+            "my weapon cannot hurt it", "it is a champion or boss", "its health is below 30%", "(rule off)" };
+        public const int DoAttack = 0, DoPotion = 1, DoFlee = 2, DoPower = 3, DoGuard = 4;
+        public const int DoKinds = 5;
+        public static readonly string[] DoNames = { "attack", "drink a healing potion", "flee", "power attack", "guard" };
+        public static readonly int[] DefaultIf = { IfHealth30, IfHealth30, IfCannotHurt, IfAlways, IfOff, IfOff };
+        public static readonly int[] DefaultDo = { DoPotion, DoFlee, DoFlee, DoAttack, DoAttack, DoAttack };
+
+        public static int PotionPrice(int level)
+        {
+            return 15 + 3 * level;
+        }
 
         public const int StatStrength = 0;
         public const int StatAgility = 3;
@@ -160,17 +190,26 @@ namespace IdleAdventurer
         public int enemyHealth;
         public int enemyMaxHealth;
         public int enemyOver;               // how far past the end of the encounter table this enemy was rolled
+        public int enemyTraits;             // champion and boss bits, IdleData.Trait*
+        public int guarding;                // 1 after the hero chose to guard, until the enemy's next attack
         public int heroTimer;
         public int enemyTimer;
 
         // Orders.
         public int targetFloor = 2;
         public int retreatPercent = 35;
-        public int fleePercent = 25;        // below this the hero tries to run from a fight in progress
+        public int fleePercent = 25;        // no longer used: replaced by the orders (ruleIf / ruleDo)
         public int autoRepeat;
         public int autoDeeper = 1;
         public int autoEquip = 1;
         public int autoSpend = 1;
+        public int[] ruleIf;
+        public int[] ruleDo;
+        public int potions = 2;
+        public int potionsToCarry = 3;
+        public int potionsDrunk;
+        public int championsKilled;
+        public int bossesKilled;
 
         // This run and lifetime tallies.
         public int runKills;
@@ -397,6 +436,11 @@ namespace IdleAdventurer
                 s.travelSeconds = IdleData.TravelSeconds;
             if (s.startFloor < 1)
                 s.startFloor = 1;
+            if (s.ruleIf == null || s.ruleIf.Length != IdleData.RuleSlots || s.ruleDo == null || s.ruleDo.Length != IdleData.RuleSlots)
+            {
+                s.ruleIf = (int[])IdleData.DefaultIf.Clone();
+                s.ruleDo = (int[])IdleData.DefaultDo.Clone();
+            }
         }
 
         public static bool Usable(IdleSave s)
@@ -430,6 +474,21 @@ namespace IdleAdventurer
             // The first 19 tables are the dungeon types, in order.
             RandomEncounterTable[] tables = RandomEncounters.EncounterTables;
             return tables[(dungeonType >= 0 && dungeonType < IdleData.DungeonTypes) ? dungeonType : 0].Enemies;
+        }
+
+        // The enemy's name as shown: "Swift Orc", "Orc Warlord, boss".
+        public static string Foe(IdleSave s, EnemyInfo e)
+        {
+            string name = e.name;
+            for (int i = 0; i < IdleData.TraitKinds; i++)
+                if ((s.enemyTraits & (1 << i)) != 0)
+                    name = IdleData.TraitNames[i] + " " + name;
+            return name;
+        }
+
+        public static bool IsChampion(IdleSave s)
+        {
+            return s.enemyTraits != 0;
         }
 
         static int EnemyLevel(IdleSave s, EnemyInfo e)
@@ -743,7 +802,21 @@ namespace IdleAdventurer
                 s.deepestFloor = s.floor;
 
             // Floor 1 rolls from the first two entries; each floor moves a three-wide window one step down the table.
-            int index = Mathf.Max(0, s.floor - 2 + Range(s, 0, 2));
+            // The last fight on every fifth floor is a boss from two steps further down, with two traits.
+            bool boss = s.roomsLeft == 1 && s.floor % IdleData.BossEvery == 0;
+            int index = boss ? s.floor + 2 : Mathf.Max(0, s.floor - 2 + Range(s, 0, 2));
+            s.enemyTraits = 0;
+            if (boss)
+            {
+                int first = Range(s, 0, IdleData.TraitKinds - 1);
+                int second = (first + Range(s, 1, IdleData.TraitKinds - 1)) % IdleData.TraitKinds;
+                s.enemyTraits = IdleData.TraitBoss | (1 << first) | (1 << second);
+            }
+            else if (Roll(s, Mathf.Min(25, 4 + s.floor)))
+            {
+                s.enemyTraits = 1 << Range(s, 0, IdleData.TraitKinds - 1);
+            }
+            s.guarding = 0;
             s.enemyOver = Mathf.Max(0, index - (table.Length - 1));
             index = Mathf.Min(index, table.Length - 1);
             s.enemyId = (int)table[index];
@@ -761,15 +834,78 @@ namespace IdleAdventurer
             {
                 health = Scaled(s, Range(s, e.def.MinHealth, e.def.MaxHealth));
             }
+            if ((s.enemyTraits & IdleData.TraitBoss) != 0)
+                health *= 3;
+            else if (s.enemyTraits != 0)
+                health = health * 8 / 5;
             s.enemyMaxHealth = Mathf.Max(1, health);
             s.enemyHealth = s.enemyMaxHealth;
 
             int enemySpeed = (e.career != null) ? e.career.Speed : 50;
             s.heroTimer = Range(s, 3, IdleData.AttackInterval(s.stats[IdleData.StatSpeed]));
-            s.enemyTimer = Range(s, 3, IdleData.AttackInterval(enemySpeed));
+            s.enemyTimer = Range(s, 3, EnemyInterval(s, e));
             s.phase = IdleData.PhaseFight;
             if (w.record)
-                w.Emit(IdleData.EvFight, "A " + e.name + " attacks (" + s.enemyHealth + " health)");
+                w.Emit(IdleData.EvFight, (((s.enemyTraits & IdleData.TraitBoss) != 0) ? "Boss: the " : IsChampion(s) ? "Champion: a " : "A ")
+                    + Foe(s, e) + " attacks (" + s.enemyHealth + " health)");
+        }
+
+        static int EnemyInterval(IdleSave s, EnemyInfo e)
+        {
+            int interval = IdleData.AttackInterval((e.career != null) ? e.career.Speed : 50);
+            if ((s.enemyTraits & IdleData.TraitSwift) != 0)
+                interval = Mathf.Max(5, interval * 6 / 10);
+            return interval;
+        }
+
+        public static bool CanHurt(IdleWorld w, EnemyInfo e)
+        {
+            DaggerfallUnityItem weapon = w.gear[IdleData.SlotWeapon];
+            return weapon != null && Works(weapon) && !IsBow(weapon) && (int)e.def.MinMetalToHit <= weapon.NativeMaterialValue
+                || (int)e.def.MinMetalToHit == 0;
+        }
+
+        static bool Applies(IdleWorld w, EnemyInfo e, int condition)
+        {
+            IdleSave s = w.s;
+            switch (condition)
+            {
+                case IdleData.IfAlways: return true;
+                case IdleData.IfHealth50: return s.health * 100 < s.maxHealth * 50;
+                case IdleData.IfHealth30: return s.health * 100 < s.maxHealth * 30;
+                case IdleData.IfHealth15: return s.health * 100 < s.maxHealth * 15;
+                case IdleData.IfCannotHurt: return !CanHurt(w, e);
+                case IdleData.IfChampion: return IsChampion(s);
+                case IdleData.IfEnemyLow: return s.enemyHealth * 100 < s.enemyMaxHealth * 30;
+            }
+            return false;
+        }
+
+        // The first order whose condition holds and whose action can be done. Attack when none does.
+        static int Choose(IdleWorld w, EnemyInfo e)
+        {
+            IdleSave s = w.s;
+            for (int i = 0; i < IdleData.RuleSlots; i++)
+            {
+                if (!Applies(w, e, s.ruleIf[i]))
+                    continue;
+                int action = s.ruleDo[i];
+                if (action == IdleData.DoPotion && (s.potions <= 0 || s.health >= s.maxHealth))
+                    continue;
+                return action;
+            }
+            return IdleData.DoAttack;
+        }
+
+        static void Drink(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            s.potions--;
+            s.potionsDrunk++;
+            int heal = s.maxHealth * 3 / 10 + 10;
+            s.health = Mathf.Min(s.maxHealth, s.health + heal);
+            if (w.record)
+                w.Emit(IdleData.EvPotion, s.heroName + " drinks a healing potion (" + s.health + "/" + s.maxHealth + ", " + s.potions + " left)", heal);
         }
 
         // The game's to-hit sum: skill, the armor number of the struck part, luck and agility differences, the
@@ -801,8 +937,23 @@ namespace IdleAdventurer
             EnemyInfo e = Enemy(s.enemyId);
             s.heroTimer = IdleData.AttackInterval(s.stats[IdleData.StatSpeed]);
 
-            // Close to death the hero spends the turn trying to get away. A failed try costs the attack.
-            if (s.recall != 0 || s.health * 100 < s.maxHealth * s.fleePercent)
+            s.guarding = 0;
+            int action = (s.recall != 0) ? IdleData.DoFlee : Choose(w, e);
+            if (action == IdleData.DoPotion)
+            {
+                Drink(w);
+                return;
+            }
+            if (action == IdleData.DoGuard)
+            {
+                s.guarding = 1;
+                if (w.record)
+                    w.Emit(IdleData.EvHeroMiss, s.heroName + " raises their guard");
+                return;
+            }
+
+            // Running away takes the turn. A failed try costs the attack.
+            if (action == IdleData.DoFlee)
             {
                 int enemySpeed = (e.career != null) ? e.career.Speed : 50;
                 int escape = Mathf.Clamp(50 + (s.stats[IdleData.StatSpeed] - enemySpeed) / 2 + s.stats[IdleData.StatLuck] / 10, 15, 90);
@@ -812,7 +963,7 @@ namespace IdleAdventurer
                     s.fled++;
                     if (s.recall == 0 && s.autoDeeper != 0 && s.targetFloor > 1)
                         s.targetFloor--;
-                    GoHome(w, s.heroName + " flees from the " + e.name);
+                    GoHome(w, s.heroName + " flees from the " + Foe(s, e));
                 }
                 else if (w.record)
                 {
@@ -838,6 +989,11 @@ namespace IdleAdventurer
             int enemyAgility = (e.career != null) ? e.career.Agility : 50;
             int enemyArmor = e.isClass ? Mathf.Max(20, 100 - EnemyLevel(s, e) * 3) : e.def.ArmorValue * 5;
             int critical = s.skills[(int)DFCareer.Skills.CriticalStrike];
+            bool power = action == IdleData.DoPower;
+            if (power)
+                chance -= 20;
+            if ((s.enemyTraits & IdleData.TraitArmoured) != 0)
+                chance -= 25;
 
             Tally(w, skill);
             bool hit = Hits(s, chance, enemyArmor, s.stats[IdleData.StatLuck] - enemyLuck, s.stats[IdleData.StatAgility] - enemyAgility,
@@ -845,7 +1001,7 @@ namespace IdleAdventurer
             if (!hit)
             {
                 if (w.record)
-                    w.Emit(IdleData.EvHeroMiss, s.heroName + " misses");
+                    w.Emit(IdleData.EvHeroMiss, s.heroName + (power ? " swings hard and misses" : " misses"));
                 return;
             }
             Tally(w, (int)DFCareer.Skills.CriticalStrike);
@@ -869,12 +1025,14 @@ namespace IdleAdventurer
                 int hand = s.skills[(int)DFCareer.Skills.HandToHand];
                 damage = Range(s, hand / 10 + 1, hand / 5 + 1) + StrengthBonus(s);
             }
+            if (power)
+                damage = damage * 3 / 2;
             if (damage < 1)
                 damage = 0;
 
             s.enemyHealth -= damage;
             if (w.record)
-                w.Emit(IdleData.EvHeroHit, s.heroName + " hits the " + e.name + " for " + damage
+                w.Emit(IdleData.EvHeroHit, s.heroName + (power ? " power-attacks the " : " hits the ") + Foe(s, e) + " for " + damage
                     + ((weapon == null && w.gear[IdleData.SlotWeapon] != null) ? " with bare hands" : ""), damage);
             if (s.enemyHealth <= 0)
                 Kill(w, e);
@@ -884,9 +1042,14 @@ namespace IdleAdventurer
         {
             IdleSave s = w.s;
             EnemyInfo e = Enemy(s.enemyId);
-            s.enemyTimer = IdleData.AttackInterval((e.career != null) ? e.career.Speed : 50);
+            s.enemyTimer = EnemyInterval(s, e);
+            if ((s.enemyTraits & IdleData.TraitRegenerating) != 0 && s.enemyHealth < s.enemyMaxHealth)
+                s.enemyHealth = Mathf.Min(s.enemyMaxHealth, s.enemyHealth + Mathf.Max(1, s.enemyMaxHealth / 25));
 
             int skill = Mathf.Min(100, EnemyLevel(s, e) * 5 + 30);
+            if (s.guarding != 0)
+                skill -= 40;
+            s.guarding = 0;
             int part = bodyParts[Range(s, 0, bodyParts.Length - 1)];
             int armor = ArmorAt(w, part);
             int luckDiff = ((e.career != null) ? e.career.Luck : 50) - s.stats[IdleData.StatLuck];
@@ -917,9 +1080,15 @@ namespace IdleAdventurer
             if (damage <= 0)
             {
                 if (w.record)
-                    w.Emit(IdleData.EvEnemyMiss, "The " + e.name + " misses");
+                    w.Emit(IdleData.EvEnemyMiss, "The " + Foe(s, e) + " misses");
                 return;
             }
+            if ((s.enemyTraits & IdleData.TraitVenomous) != 0)
+                damage = damage * 7 / 5;
+            if ((s.enemyTraits & IdleData.TraitEnraged) != 0 && s.enemyHealth * 2 < s.enemyMaxHealth)
+                damage = damage * 8 / 5;
+            if ((s.enemyTraits & IdleData.TraitVampiric) != 0)
+                s.enemyHealth = Mathf.Min(s.enemyMaxHealth, s.enemyHealth + damage / 2);
 
             DaggerfallUnityItem shield = w.gear[IdleData.SlotShield];
             bool onShield = false;
@@ -934,7 +1103,7 @@ namespace IdleAdventurer
 
             s.health -= damage;
             if (w.record)
-                w.Emit(IdleData.EvEnemyHit, "The " + e.name + " hits for " + damage + " (" + Mathf.Max(0, s.health) + "/" + s.maxHealth + ")", damage);
+                w.Emit(IdleData.EvEnemyHit, "The " + Foe(s, e) + " hits for " + damage + " (" + Mathf.Max(0, s.health) + "/" + s.maxHealth + ")", damage);
             if (s.health <= 0)
                 Die(w, e);
         }
@@ -946,9 +1115,26 @@ namespace IdleAdventurer
             s.runKills++;
             s.roomsLeft--;
             if (w.record)
-                w.Emit(IdleData.EvKill, "The " + e.name + " is dead");
-            RollLoot(w, e);
+                w.Emit(IdleData.EvKill, "The " + Foe(s, e) + " is dead");
+            bool boss = (s.enemyTraits & IdleData.TraitBoss) != 0;
+            int rolls = boss ? 3 : IsChampion(s) ? 2 : 1;
+            for (int i = 0; i < rolls; i++)
+                RollLoot(w, e);
+            if (boss)
+            {
+                s.bossesKilled++;
+                Take(w, Built(s, delegate (int level) { return ItemBuilder.CreateRandomMagicItem(level, (Genders)s.gender, (Races)s.race); }));
+            }
+            else if (IsChampion(s))
+            {
+                s.championsKilled++;
+            }
             s.enemyId = -1;
+            s.enemyTraits = 0;
+
+            // Hurt between fights: a potion first, home if that is not enough.
+            while (s.health * 100 < s.maxHealth * s.retreatPercent && s.potions > 0)
+                Drink(w);
             if (s.health * 100 < s.maxHealth * s.retreatPercent)
             {
                 s.retreats++;
@@ -979,11 +1165,28 @@ namespace IdleAdventurer
             if (s.autoDeeper != 0 && s.targetFloor > 1)
                 s.targetFloor--;
             if (w.record)
-                w.Emit(IdleData.EvDied, s.heroName + " was killed by the " + e.name + " on floor " + s.floor + ". Loot lost, " + lost + " gold lost");
+                w.Emit(IdleData.EvDied, s.heroName + " was killed by the " + Foe(s, e) + " on floor " + s.floor + ". Loot lost, " + lost + " gold lost");
             GoHome(w, "Carried back to town");
         }
 
         // ------------------------------------------------------------------ loot and town
+
+        public delegate DaggerfallUnityItem Maker(int level);
+
+        static DaggerfallUnityItem Built(IdleSave s, Maker make)
+        {
+            int level = Mathf.Max(1, (s.level + s.floor + 1) / 2) + 2;
+            UnityEngine.Random.State keep = UnityEngine.Random.state;
+            UnityEngine.Random.InitState(Next(s));
+            try
+            {
+                return make(level);
+            }
+            finally
+            {
+                UnityEngine.Random.state = keep;
+            }
+        }
 
         // The game's loot roll for an enemy's table, with our own level in place of the player's. The item builders
         // use Unity's random numbers, so those are seeded from ours for the roll and put back afterwards.
@@ -997,7 +1200,7 @@ namespace IdleAdventurer
             Genders g = (Genders)s.gender;
             Races r = (Races)s.race;
 
-            int gold = Range(s, m.MinGold, m.MaxGold) * level;
+            int gold = Range(s, m.MinGold, m.MaxGold) * level * (IsChampion(s) ? 2 : 1);
             if (gold > 0)
             {
                 s.runGold += gold;
@@ -1273,6 +1476,16 @@ namespace IdleAdventurer
             s.gold += income;
             s.goldEarned += income;
 
+            // Potions are bought before repairs: they keep the hero alive.
+            int bought = 0;
+            int price = IdleData.PotionPrice(s.level);
+            while (s.potions < s.potionsToCarry && s.gold >= price)
+            {
+                s.gold -= price;
+                s.potions++;
+                bought++;
+            }
+
             // Repairs, cheapest first come first served: a quarter of the item's value for a full repair.
             int repairs = 0;
             for (int i = 0; i < w.gear.Length; i++)
@@ -1291,7 +1504,7 @@ namespace IdleAdventurer
             Restock(w);
             if (w.record)
                 w.Emit(IdleData.EvHome, "Back in town: " + s.runKills + " kills, " + s.runGold + " gold found, loot sold for " + sold
-                    + ", repairs " + repairs + ((equipped > 0) ? ", " + equipped + " upgrade(s)" : ""));
+                    + ", repairs " + repairs + ((bought > 0) ? ", " + bought + " potion(s) bought" : "") + ((equipped > 0) ? ", " + equipped + " upgrade(s)" : ""));
             s.carried = 0;
         }
 
@@ -1306,7 +1519,7 @@ namespace IdleAdventurer
                     gear += (gear.Length > 0 ? ", " : "") + w.gear[i].LongName;
             return "level " + s.level + ", health " + s.maxHealth + ", gold " + s.gold + ", runs " + s.expeditions + " (cleared " + s.clears
                 + ", retreated " + s.retreats + ", died " + s.deaths + "), kills " + s.kills + ", deepest floor " + s.deepestFloor
-                + ", fled " + s.fled + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
+                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
                 + (long)(s.goldEarned / Mathf.Max(0.05f, s.clock / 36000f)) + " | " + gear;
         }
 

@@ -220,6 +220,7 @@ namespace IdleAdventurer
                 case IdleData.EvKill:
                 case IdleData.EvLevel:
                 case IdleData.EvSkill:
+                case IdleData.EvPotion:
                     return Good;
                 case IdleData.EvEnemyHit:
                 case IdleData.EvDied:
@@ -236,6 +237,19 @@ namespace IdleAdventurer
                     return Gold;
             }
             return White;
+        }
+
+        // Colour for a champion's or boss's name, and the tint of its sprite.
+        public static Color TraitColor(int traits)
+        {
+            if ((traits & IdleData.TraitBoss) != 0) return new Color(1f, 0.55f, 0.25f, 1f);
+            if ((traits & IdleData.TraitSwift) != 0) return new Color(0.75f, 1f, 0.75f, 1f);
+            if ((traits & IdleData.TraitArmoured) != 0) return new Color(0.75f, 0.8f, 1f, 1f);
+            if ((traits & IdleData.TraitRegenerating) != 0) return new Color(0.7f, 1f, 0.9f, 1f);
+            if ((traits & IdleData.TraitVenomous) != 0) return new Color(0.7f, 1f, 0.45f, 1f);
+            if ((traits & IdleData.TraitVampiric) != 0) return new Color(1f, 0.6f, 0.75f, 1f);
+            if ((traits & IdleData.TraitEnraged) != 0) return new Color(1f, 0.6f, 0.55f, 1f);
+            return Color.white;
         }
     }
 
@@ -380,6 +394,11 @@ namespace IdleAdventurer
                 DaggerfallUI.UIManager.PushWindow(new IdleMapWindow(DaggerfallUI.UIManager, this));
                 return;
             }
+            if (Input.GetKeyDown(KeyCode.O) || click == HubCanvas.BtnOrders)
+            {
+                DaggerfallUI.UIManager.PushWindow(new IdleOrdersWindow(DaggerfallUI.UIManager, this));
+                return;
+            }
             if (Input.GetKeyDown(KeyCode.K) || click == HubCanvas.BtnSkip)
                 s.skipCleared = (s.skipCleared == 0) ? 1 : 0;
             if (Input.GetKeyDown(KeyCode.C) || click == HubCanvas.BtnHero)
@@ -431,7 +450,7 @@ namespace IdleAdventurer
 
         class HubCanvas : BaseScreenComponent
         {
-            public const int BtnGo = 1, BtnView = 2, BtnRepeat = 3, BtnDeeper = 4, BtnLess = 5, BtnMore = 6, BtnSpeed = 7, BtnTest = 8, BtnBack = 9, BtnHero = 10, BtnMap = 11, BtnSkip = 12;
+            public const int BtnGo = 1, BtnView = 2, BtnRepeat = 3, BtnDeeper = 4, BtnLess = 5, BtnMore = 6, BtnSpeed = 7, BtnTest = 8, BtnBack = 9, BtnHero = 10, BtnMap = 11, BtnSkip = 12, BtnOrders = 13;
             public string[] Report;
             public readonly IdleButtons Buttons = new IdleButtons();
 
@@ -540,7 +559,8 @@ namespace IdleAdventurer
                 Text("Idle Adventurer", x, y, sc * 1.4f, DaggerfallUI.DaggerfallDefaultTextColor);
                 y += line * 1.5f;
 
-                Text(s.heroName + ", level " + s.level + "    Gold " + s.gold + "    Health " + s.health + "/" + s.maxHealth, x, y, sc, White);
+                Text(s.heroName + ", level " + s.level + "    Gold " + s.gold + "    Health " + s.health + "/" + s.maxHealth + "    Potions " + s.potions
+                    + "/" + s.potionsToCarry, x, y, sc, White);
                 y += line;
                 Bar(new Rect(x, y, inner * 0.4f, Mathf.Round(line * 0.3f)), (float)s.health / Mathf.Max(1, s.maxHealth), Bad);
                 y += line * 0.6f;
@@ -553,7 +573,7 @@ namespace IdleAdventurer
 
                 string doing = IdleSim.PhaseName(s);
                 if (s.phase == IdleData.PhaseFight && s.enemyId >= 0)
-                    doing += ": " + IdleSim.Enemy(s.enemyId).name + " " + Mathf.Max(0, s.enemyHealth) + "/" + s.enemyMaxHealth;
+                    doing += ": " + IdleSim.Foe(s, IdleSim.Enemy(s.enemyId)) + " " + Mathf.Max(0, s.enemyHealth) + "/" + s.enemyMaxHealth;
                 else if (s.phase != IdleData.PhaseTown)
                     doing += " (" + (s.phaseLeft / IdleData.TicksPerSecond + 1) + " s)";
                 Text(doing, x, y, sc, DaggerfallUI.DaggerfallDefaultTextColor);
@@ -590,6 +610,7 @@ namespace IdleAdventurer
                     bx += Buttons.Add(BtnView, "View (V)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnHero, "Hero and shop (C)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnMap, "Destination (M)", bx, bottom, tall, false) + gap;
+                bx += Buttons.Add(BtnOrders, "Orders (O)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnSpeed, "Speed " + IdleClock.Speed + "x (F)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnTest, "Test (T)", bx, bottom, tall, false) + gap;
                 Buttons.Add(BtnBack, "Back (Esc)", bx, bottom, tall, false);
@@ -694,6 +715,26 @@ namespace IdleAdventurer
                 lines.Add("First 10 runs, average of " + heroes + " heroes: " + (deaths / (float)heroes).ToString("0.0") + " deaths, level "
                     + (levels / (float)heroes).ToString("0.0") + ", deepest floor " + (floors / (float)heroes).ToString("0.0") + ", gold " + (gold / heroes)
                     + ", " + (ticks / heroes / 600) + " min");
+
+                // The same 40 heroes with every order switched off but "always attack", for comparison.
+                int bareDeaths = 0, bareLevels = 0, bareFloors = 0;
+                for (int seed = 1; seed <= heroes; seed++)
+                {
+                    IdleWorld bare = IdleSim.NewHero(seed * 104729, "Test");
+                    bare.s.autoRepeat = 1;
+                    bare.s.potionsToCarry = 0;
+                    bare.s.potions = 0;
+                    for (int i = 0; i < IdleData.RuleSlots; i++)
+                        bare.s.ruleIf[i] = IdleData.IfOff;
+                    bare.stopAfter = 10;
+                    for (int guard = 0; guard < 400 && bare.s.expeditions < 10; guard++)
+                        IdleSim.Advance(bare, 36000);
+                    bareDeaths += bare.s.deaths;
+                    bareLevels += bare.s.level;
+                    bareFloors += bare.s.deepestFloor;
+                }
+                lines.Add("Same, no potions and no orders: " + (bareDeaths / (float)heroes).ToString("0.0") + " deaths, level "
+                    + (bareLevels / (float)heroes).ToString("0.0") + ", deepest floor " + (bareFloors / (float)heroes).ToString("0.0"));
 
                 int[] marks = { 10, 50, 200 };
                 for (int i = 0; i < marks.Length; i++)

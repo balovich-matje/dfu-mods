@@ -48,6 +48,21 @@ Status: M0 (spike) and M1 (simulation core, balance pass) are done. Decisions al
     200 runs now take about 17 hours of game time instead of 122 (level 17, floor 30).
   - *Still open in M3:* the map picture with dots and regions, region difficulty, a smith screen (repairs are
     automatic), and gold still piles up late (2 million after 200 runs).
+- **M4, first part (`src/IdleOrders.cs`, O in the hub):**
+  - *Orders:* six "if CONDITION then ACTION" rules, first match wins on each of the hero's turns. Conditions:
+    always, health below 50/30/15%, my weapon cannot hurt it, it is a champion or boss, its health is below 30%,
+    off. Actions: attack, drink a healing potion, flee, power attack (-20 to hit, x1.5 damage), guard (no attack,
+    enemy -40 to hit once). Defaults: potion below 30%, flee below 30%, flee when the weapon cannot hurt, attack.
+    The old fixed flee threshold (`fleePercent`) is no longer used.
+  - *Healing potions:* a count, not items. Heal 30% + 10. Bought in town before repairs up to "carry N"
+    (15 + 3 x level gold). Between fights a hurt hero drinks before deciding to go home.
+  - *Champions:* min(25%, 4% + floor) of fights, one trait (Swift, Armoured, Regenerating, Venomous, Vampiric,
+    Enraged), x1.6 health, two loot rolls, double gold. Name and sprite tinted by trait.
+  - *Bosses:* the last fight on every fifth floor, from two steps further down the table, two traits, x3 health,
+    sprite 25% larger, three loot rolls and a magic item.
+  - *Test:* first ten runs, 40 heroes: 0.6 deaths with orders and potions, 2.9 with neither. 200 runs: level 19,
+    floor 30, 42 deaths (bosses bite late).
+  - *Still open in M4:* spells (hero and enemy casters), resistances, material warnings outside the map card.
 - **Blocks:** all 93 "N" blocks give a route (140 to 430 m) when tested one by one with B in the view. A rejected
   block must be destroyed at once (`DestroyImmediate`): left until the end of the frame, its colliders end up in
   the next block's navmesh and the hero walks in the void where it used to be.

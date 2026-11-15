@@ -557,7 +557,7 @@ namespace IdleAdventurer
         }
 
         // mode: 0 standing, 1 attacking, 2 just struck.
-        public void ShowEnemy(int id, float distance, int mode)
+        public void ShowEnemy(int id, float distance, int mode, Color tint, float grow)
         {
             if (!Ready)
                 return;
@@ -599,6 +599,7 @@ namespace IdleAdventurer
                 UnityEngine.Object.Destroy(enemy.GetComponent<Collider>());
                 enemy.transform.parent = root.transform;
                 enemyMaterial = MaterialReader.CreateBillboardMaterial();
+                Debug.Log("[Idle] VIEW enemy shader " + enemyMaterial.shader.name + ", tint " + (enemyMaterial.HasProperty("_Color") ? "yes" : "no"));
                 enemy.GetComponent<MeshRenderer>().sharedMaterial = enemyMaterial;
             }
             Texture2D[] frames = idle;
@@ -607,9 +608,11 @@ namespace IdleAdventurer
                 frames = other;
             Texture2D frame = frames[(int)(Time.unscaledTime * 7f) % frames.Length];
             enemyMaterial.mainTexture = frame;
+            if (enemyMaterial.HasProperty("_Color"))
+                enemyMaterial.color = tint;
             dyingId = -1;
 
-            float tall = heights[id];
+            float tall = heights[id] * grow;
             float wide = tall * frame.width / Mathf.Max(1, frame.height);
             if (enemyShown != id || !enemy.activeSelf)
             {
@@ -729,6 +732,7 @@ namespace IdleAdventurer
             public string text;
             public float born;
             public bool onHero;
+            public bool heal;
         }
 
         ViewCanvas canvas;
@@ -902,6 +906,15 @@ namespace IdleAdventurer
                     enemyAttackUntil = now + 0.5f;
                 if (e.type == IdleData.EvEnemyHit)
                     hurtUntil = now + 0.25f;
+                if (e.type == IdleData.EvPotion && floaters.Count < 12)
+                {
+                    Floater f = new Floater();
+                    f.text = "+" + e.value;
+                    f.born = now;
+                    f.onHero = true;
+                    f.heal = true;
+                    floaters.Add(f);
+                }
                 if (e.type == IdleData.EvHeroHit)
                     enemyHurtUntil = now + 0.22f;
                 if (e.type == IdleData.EvKill && scene != null)
@@ -945,7 +958,8 @@ namespace IdleAdventurer
             if (fighting)
             {
                 float at = scene.EnemyPlaced(s.enemyId) ? 0f : scene.EnemySpot(distance, direction, FightGap);
-                scene.ShowEnemy(s.enemyId, at, (now < enemyAttackUntil) ? 1 : (now < enemyHurtUntil) ? 2 : 0);
+                scene.ShowEnemy(s.enemyId, at, (now < enemyAttackUntil) ? 1 : (now < enemyHurtUntil) ? 2 : 0,
+                    IdleUi.TraitColor(s.enemyTraits), ((s.enemyTraits & IdleData.TraitBoss) != 0) ? 1.25f : 1f);
             }
             else
             {
@@ -990,6 +1004,10 @@ namespace IdleAdventurer
                 case IdleData.EvLoot:
                     if (e.text.StartsWith("Found"))
                         clip = (int)SoundClips.GoldPieces;
+                    break;
+                case IdleData.EvPotion:
+                    clip = (int)SoundClips.MakePotion;
+                    always = true;
                     break;
                 case IdleData.EvLevel:
                     clip = (int)SoundClips.LevelUp;
@@ -1058,16 +1076,18 @@ namespace IdleAdventurer
                         float age = now - f.born;
                         float fx = f.onHero ? pad + line * 4f : W * 0.5f + ((i % 3) - 1) * line * 1.5f;
                         float fy = (f.onHero ? H - pad - line * 4f : H * 0.36f) - age * line * 2.2f;
-                        Color c = f.onHero ? IdleUi.Bad : IdleUi.White;
+                        Color c = f.heal ? IdleUi.Good : f.onHero ? IdleUi.Bad : IdleUi.White;
                         c.a = Mathf.Clamp01(1.4f - age * 1.3f);
                         IdleUi.Centred(f.text, fx, fy, sc * 1.5f, c);
                     }
 
                     if (s.phase == IdleData.PhaseFight && s.enemyId >= 0)
                     {
-                        string name = IdleSim.Enemy(s.enemyId).name;
+                        string name = IdleSim.Foe(s, IdleSim.Enemy(s.enemyId));
+                        if ((s.enemyTraits & IdleData.TraitBoss) != 0)
+                            name = "Boss: " + name;
                         float bw = Mathf.Round(W * 0.26f);
-                        IdleUi.Centred(name, W * 0.5f, pad, sc * 1.2f, IdleUi.Gold);
+                        IdleUi.Centred(name, W * 0.5f, pad, sc * 1.2f, IdleSim.IsChampion(s) ? IdleUi.TraitColor(s.enemyTraits) : IdleUi.Gold);
                         IdleUi.Bar(new Rect((W - bw) / 2f, pad + line * 1.25f, bw, Mathf.Round(line * 0.35f)), (float)s.enemyHealth / Mathf.Max(1, s.enemyMaxHealth), IdleUi.Line);
                     }
                     IdleUi.Text("Floor " + s.floor + " of " + s.targetFloor + "    " + s.roomsLeft + " fight(s) left", pad, pad, sc, IdleUi.Gold);
@@ -1100,7 +1120,7 @@ namespace IdleAdventurer
                 float hw = Mathf.Round(W * 0.22f);
                 float tall = Mathf.Round(line * 1.25f);
                 float hy = H - pad - tall - line * 1.9f;
-                IdleUi.Text(s.heroName + "  " + Mathf.Max(0, s.health) + "/" + s.maxHealth, pad, hy, sc, IdleUi.White);
+                IdleUi.Text(s.heroName + "  " + Mathf.Max(0, s.health) + "/" + s.maxHealth + "    Potions " + s.potions, pad, hy, sc, IdleUi.White);
                 IdleUi.Bar(new Rect(pad, hy + line, hw, Mathf.Round(line * 0.4f)), (float)s.health / Mathf.Max(1, s.maxHealth), IdleUi.Bad);
 
                 // The last few events, right side.
