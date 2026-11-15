@@ -117,9 +117,21 @@ namespace IdleAdventurer
         public static readonly string[] AffixText = { "+{0} to hit", "+{0} damage", "heals {0} for every kill", "attacks {0}% faster",
             "+{0} armor", "{0} less damage from every hit", "heals {0}% faster between fights", "+{0} dodging",
             "+{0}% to resist spells", "spells cost {0}% less", "+{0} magicka" };
-        public const int RarityCommon = 0, RarityFine = 1, RarityRare = 2, RarityHeroic = 3;
-        public static readonly string[] RarityNames = { "Common", "Fine", "Rare", "Heroic" };
-        public static readonly int[] RarityPrice = { 100, 150, 220, 320 };      // percent of the item's price
+        public const int MaxEnchants = 3;
+        public static readonly string[] EnchantNames = { "Plain", "Enchanted", "Twice enchanted", "Thrice enchanted" };
+
+        // Reinforcement (+1 to +25): every level adds 6% of a weapon's base damage, or 1 armor every 2 levels. The
+        // metal sets the highest level. Steps cost gold, growing with the square of the level, and ingots of the
+        // item's own metal. Weapons climb iron to daedric; armor climbs leather and chain (both use iron ingots),
+        // then plate iron to daedric.
+        public const int Metals = 10;
+        public static readonly string[] MetalNames = { "Iron", "Steel", "Silver", "Elven", "Dwarven", "Mithril", "Adamantium", "Ebony", "Orcish", "Daedric" };
+        public static readonly int[] MetalCap = { 6, 8, 10, 12, 14, 16, 18, 20, 22, 25 };
+        public const int LeatherCap = 4, ChainCap = 5;
+        public static readonly int[] MetalGold = { 10, 15, 25, 40, 60, 90, 130, 180, 250, 400 };        // times (level + 1) squared
+        public static readonly int[] IngotPrice = { 25, 50, 80, 120, 180, 260, 380, 550, 800, 1200 };
+        public const int LevelDamagePercent = 6;
+        public const int ReforgeGold = 30;          // times the new metal's MetalGold
 
         // What spells did to the current fight.
         public const int StatusHidden = 1;          // the enemy is invisible or a chameleon: the hero's swings -30 to hit
@@ -306,6 +318,11 @@ namespace IdleAdventurer
         public string stashAffixes;
         public string shopAffixes;
         public int affixesFound;
+        public int[] ingots;                // per IdleData metal, in the materials pouch
+        public bool noAutoSmith;            // true: the smith only works when told to
+        public int levelsBought;            // reinforcement steps paid for
+        public int reforges;
+        public long smithGold;              // gold spent at the smith on reinforcing and reforging
         [NonSerialized] public int[] bonus = new int[IdleData.AffixKinds];     // worn affixes, summed and capped
 
         // This run and lifetime tallies.
@@ -555,6 +572,8 @@ namespace IdleAdventurer
         {
             if (s.clearedFloors == null || s.clearedFloors.Length != IdleData.DungeonTypes)
                 s.clearedFloors = new int[IdleData.DungeonTypes];
+            if (s.ingots == null || s.ingots.Length != IdleData.Metals)
+                s.ingots = new int[IdleData.Metals];
             if (s.targets == null || s.targets.Length != IdleData.DungeonTypes)
                 s.targets = new int[IdleData.DungeonTypes];
             if (s.dungeonType < 0 || s.dungeonType >= IdleData.DungeonTypes)
@@ -684,14 +703,14 @@ namespace IdleAdventurer
             int value = 100;
             DaggerfallUnityItem piece = w.gear[part];
             if (Works(piece))
-                value -= (piece.GetMaterialArmorValue() + AffixValue(piece, IdleData.AffixSturdy)) * 5;
+                value -= ArmorValue(piece, false) * 5;
             DaggerfallUnityItem shield = w.gear[IdleData.SlotShield];
             if (Works(shield))
             {
                 BodyParts[] covered = shield.GetShieldProtectedBodyParts();
                 for (int i = 0; i < covered.Length; i++)
                     if ((int)covered[i] == part)
-                        value -= (shield.GetShieldArmorValue() + AffixValue(shield, IdleData.AffixSturdy)) * 5;
+                        value -= ArmorValue(shield, true) * 5;
             }
             return value;
         }
@@ -726,7 +745,7 @@ namespace IdleAdventurer
             if (skill < 0 || skill >= s.skills.Length)
                 return 0f;
             int mod = item.GetWeaponMaterialModifier();
-            float damage = (item.GetBaseDamageMin() + item.GetBaseDamageMax()) / 2f + StrengthBonus(s) + mod + AffixValue(item, IdleData.AffixCruel);
+            float damage = (item.GetBaseDamageMin() + item.GetBaseDamageMax()) / 2f * (100 + IdleData.LevelDamagePercent * Level(item)) / 100f + StrengthBonus(s) + mod + AffixValue(item, IdleData.AffixCruel);
             float chance = Mathf.Clamp(s.skills[skill] + mod * 10 + 20 + AffixValue(item, IdleData.AffixKeen), 3, 97);
             float speed = 100f / Mathf.Max(50f, 100f - AffixValue(item, IdleData.AffixSwift));
             return Mathf.Max(0f, damage) * chance * speed + AffixValue(item, IdleData.AffixLeech) * 20f + item.NativeMaterialValue * 0.01f;
@@ -1514,7 +1533,7 @@ namespace IdleAdventurer
             int damage;
             if (weapon != null)
             {
-                damage = Range(s, weapon.GetBaseDamageMin(), weapon.GetBaseDamageMax());
+                damage = Reinforced(weapon, Range(s, weapon.GetBaseDamageMin(), weapon.GetBaseDamageMax()));
                 if (s.enemyId == (int)MobileTypes.SkeletalWarrior)
                 {
                     if ((weapon.flags & 0x10) == 0)
@@ -1640,8 +1659,11 @@ namespace IdleAdventurer
             if (boss)
             {
                 s.bossesKilled++;
-                Take(w, Affixed(w, Built(s, delegate (int level) { return ItemBuilder.CreateRandomMagicItem(level, (Genders)s.gender, (Races)s.race); }),
-                    IdleData.RarityHeroic));
+                // A boss's own piece: reinforced to about half the floor, with one strong enchantment.
+                bool weaponDrop = Roll(s, 50);
+                Take(w, Affixed(w, Built(s, delegate (int level) {
+                    return weaponDrop ? ItemBuilder.CreateRandomWeapon(level) : ItemBuilder.CreateRandomArmor(level, (Genders)s.gender, (Races)s.race); }),
+                    1, true));
             }
             else if (IsChampion(s))
             {
@@ -1736,8 +1758,8 @@ namespace IdleAdventurer
             try
             {
                 float c;
-                for (c = m.WP; Dice100.SuccessRoll((int)c); c *= 0.5f) Take(w, Affixed(w, ItemBuilder.CreateRandomWeapon(level), -1));
-                for (c = m.AM; Dice100.SuccessRoll((int)c); c *= 0.5f) Take(w, Affixed(w, ItemBuilder.CreateRandomArmor(level, g, r), -1));
+                for (c = m.WP; Dice100.SuccessRoll((int)c); c *= 0.5f) Take(w, Affixed(w, ItemBuilder.CreateRandomWeapon(level), -1, false));
+                for (c = m.AM; Dice100.SuccessRoll((int)c); c *= 0.5f) Take(w, Affixed(w, ItemBuilder.CreateRandomArmor(level, g, r), -1, false));
                 for (c = m.C1 * level; Dice100.SuccessRoll((int)c); c *= 0.5f) Take(w, ItemBuilder.CreateRandomIngredient(ItemGroups.CreatureIngredients1));
                 for (c = m.C2 * level; Dice100.SuccessRoll((int)c); c *= 0.5f) Take(w, ItemBuilder.CreateRandomIngredient(ItemGroups.CreatureIngredients2));
                 for (c = m.C3; Dice100.SuccessRoll((int)c); c *= 0.5f) Take(w, ItemBuilder.CreateRandomIngredient(ItemGroups.CreatureIngredients3));
@@ -1758,7 +1780,7 @@ namespace IdleAdventurer
 
         static float Worth(DaggerfallUnityItem item)
         {
-            return item.value * item.stackCount * RarityOf(item) / 100f / Mathf.Max(0.05f, item.weightInKg * item.stackCount);
+            return item.value * item.stackCount * WorthOf(item) / 100f / Mathf.Max(0.05f, item.weightInKg * item.stackCount);
         }
 
         // When the pack is full the hero keeps whatever is worth most for its weight.
@@ -1795,10 +1817,11 @@ namespace IdleAdventurer
                 w.Emit(IdleData.EvLoot, "Picked up " + Name(item));
         }
 
-        // ------------------------------------------------------------------ affixes
+        // ------------------------------------------------------------------ affixes and reinforcement
 
-        // Per item: { rarity, kind, value, kind, value }, kind -1 for none. Keyed by the item object itself, because
-        // the game's item IDs start again every launch.
+        // Per item: { level, kind, value, kind, value, kind, value }, kind -1 for none. Keyed by the item object
+        // itself, because the game's item IDs start again every launch.
+        const int DataLength = 1 + IdleData.MaxEnchants * 2;
         static readonly Dictionary<DaggerfallUnityItem, int[]> affixes = new Dictionary<DaggerfallUnityItem, int[]>();
 
         public static int[] AffixesOf(DaggerfallUnityItem item)
@@ -1809,16 +1832,39 @@ namespace IdleAdventurer
             return null;
         }
 
-        public static int Rarity(DaggerfallUnityItem item)
+        static int[] DataFor(DaggerfallUnityItem item)
         {
             int[] a = AffixesOf(item);
-            return (a != null) ? a[0] : IdleData.RarityCommon;
+            if (a == null)
+            {
+                a = new int[DataLength];
+                for (int i = 1; i < a.Length; i += 2)
+                    a[i] = -1;
+                affixes[item] = a;
+            }
+            return a;
         }
 
-        // Price multiplier in percent.
-        static int RarityOf(DaggerfallUnityItem item)
+        public static int Level(DaggerfallUnityItem item)
         {
-            return IdleData.RarityPrice[Mathf.Clamp(Rarity(item), 0, IdleData.RarityPrice.Length - 1)];
+            int[] a = AffixesOf(item);
+            return (a != null) ? a[0] : 0;
+        }
+
+        public static int Enchants(DaggerfallUnityItem item)
+        {
+            int[] a = AffixesOf(item);
+            int n = 0;
+            for (int i = 1; a != null && i + 1 < a.Length; i += 2)
+                if (a[i] >= 0)
+                    n++;
+            return n;
+        }
+
+        // Price multiplier in percent: enchantments and reinforcement make an item worth more.
+        static int WorthOf(DaggerfallUnityItem item)
+        {
+            return 100 + 60 * Enchants(item) + 10 * Level(item);
         }
 
         public static int AffixValue(DaggerfallUnityItem item, int kind)
@@ -1833,7 +1879,253 @@ namespace IdleAdventurer
             return sum;
         }
 
-        // "Keen Steel Longsword of the Leech".
+        // Where an item stands on its ladder: weapons 0-9 (iron to daedric); armor 0 leather, 1 chain, 2-11 plate.
+        public static int Rung(DaggerfallUnityItem item)
+        {
+            if (item == null)
+                return -1;
+            int v = item.NativeMaterialValue;
+            if (item.ItemGroup == ItemGroups.Weapons)
+                return Mathf.Clamp(v, 0, IdleData.Metals - 1);
+            if (v == (int)ArmorMaterialTypes.Leather)
+                return 0;
+            if (v == (int)ArmorMaterialTypes.Chain || v == (int)ArmorMaterialTypes.Chain2)
+                return 1;
+            return 2 + Mathf.Clamp(v - (int)ArmorMaterialTypes.Iron, 0, IdleData.Metals - 1);
+        }
+
+        static int TopRung(DaggerfallUnityItem item)
+        {
+            return (item.ItemGroup == ItemGroups.Weapons) ? IdleData.Metals - 1 : IdleData.Metals + 1;
+        }
+
+        // The metal whose ingots reinforce an item at a rung.
+        static int MetalAt(DaggerfallUnityItem item, int rung)
+        {
+            return (item.ItemGroup == ItemGroups.Weapons) ? rung : Mathf.Max(0, rung - 2);
+        }
+
+        public static int Metal(DaggerfallUnityItem item)
+        {
+            return MetalAt(item, Rung(item));
+        }
+
+        // The ladder name: Leather and Chain for the two lowest armor rungs, the metal otherwise.
+        public static string MetalName(DaggerfallUnityItem item)
+        {
+            int rung = Rung(item);
+            if (item.ItemGroup != ItemGroups.Weapons && rung == 0)
+                return "Leather";
+            if (item.ItemGroup != ItemGroups.Weapons && rung == 1)
+                return "Chain";
+            return IdleData.MetalNames[Mathf.Clamp(Metal(item), 0, IdleData.Metals - 1)];
+        }
+
+        static int CapAt(DaggerfallUnityItem item, int rung)
+        {
+            if (item.ItemGroup != ItemGroups.Weapons && rung == 0)
+                return IdleData.LeatherCap;
+            if (item.ItemGroup != ItemGroups.Weapons && rung == 1)
+                return IdleData.ChainCap;
+            return IdleData.MetalCap[MetalAt(item, rung)];
+        }
+
+        public static int LevelCap(DaggerfallUnityItem item)
+        {
+            return (item == null || SlotFor(item) < 0) ? 0 : CapAt(item, Rung(item));
+        }
+
+        // The next reinforcement step: its gold and ingots. Ingots short in the pouch are bought at the smith.
+        public static int StepGold(DaggerfallUnityItem item)
+        {
+            int next = Level(item) + 1;
+            return IdleData.MetalGold[Metal(item)] * next * next;
+        }
+
+        public static int StepIngots(DaggerfallUnityItem item)
+        {
+            return 1 + Level(item) / 3;
+        }
+
+        // Total gold for a number of ingots of a metal, buying whatever the pouch is short of.
+        public static int IngotBill(IdleSave s, int metal, int needed)
+        {
+            return Mathf.Max(0, needed - s.ingots[metal]) * IdleData.IngotPrice[metal];
+        }
+
+        public static int StepCost(IdleSave s, DaggerfallUnityItem item)
+        {
+            return StepGold(item) + IngotBill(s, Metal(item), StepIngots(item));
+        }
+
+        // Why a piece cannot be reinforced now, or null when it can.
+        public static string CannotReinforce(IdleSave s, DaggerfallUnityItem item)
+        {
+            if (item == null || SlotFor(item) < 0)
+                return "Only weapons and armor can be reinforced.";
+            if (Level(item) >= LevelCap(item))
+                return MetalName(item) + " goes no higher than +" + LevelCap(item) + ". Reforge it into a better metal.";
+            if (StepCost(s, item) > s.gold)
+                return "Not enough gold: the next level costs " + StepCost(s, item) + ".";
+            return null;
+        }
+
+        static void Spend(IdleSave s, int metal, int needed, int gold)
+        {
+            int bill = IngotBill(s, metal, needed);
+            s.ingots[metal] = Mathf.Max(0, s.ingots[metal] - needed);
+            s.gold -= gold + bill;
+            s.smithGold += gold + bill;
+        }
+
+        public static bool Reinforce(IdleWorld w, DaggerfallUnityItem item)
+        {
+            IdleSave s = w.s;
+            if (CannotReinforce(s, item) != null)
+                return false;
+            Spend(s, Metal(item), StepIngots(item), StepGold(item));
+            DataFor(item)[0]++;
+            s.levelsBought++;
+            RefreshBonus(w);
+            return true;
+        }
+
+        // Reforging: the next metal up, keeping level and enchantments, for ingots of the new metal and gold.
+        public static int ReforgeIngots(DaggerfallUnityItem item)
+        {
+            return 4 + Level(item) / 2;
+        }
+
+        public static int ReforgeGold(DaggerfallUnityItem item)
+        {
+            return IdleData.MetalGold[MetalAt(item, Mathf.Min(TopRung(item), Rung(item) + 1))] * IdleData.ReforgeGold;
+        }
+
+        public static int ReforgeCost(IdleSave s, DaggerfallUnityItem item)
+        {
+            int metal = MetalAt(item, Mathf.Min(TopRung(item), Rung(item) + 1));
+            return ReforgeGold(item) + IngotBill(s, metal, ReforgeIngots(item));
+        }
+
+        public static string NextMetalName(DaggerfallUnityItem item)
+        {
+            int rung = Rung(item) + 1;
+            if (item.ItemGroup != ItemGroups.Weapons && rung == 1)
+                return "Chain";
+            return IdleData.MetalNames[MetalAt(item, Mathf.Min(TopRung(item), rung))];
+        }
+
+        static bool Reforgeable(DaggerfallUnityItem item)
+        {
+            return !item.IsArtifact && item.TemplateIndex <= ItemHelper.LastDFTemplate;
+        }
+
+        public static string CannotReforge(IdleSave s, DaggerfallUnityItem item)
+        {
+            if (item == null || SlotFor(item) < 0)
+                return "Only weapons and armor can be reforged.";
+            if (Rung(item) >= TopRung(item))
+                return "Daedric is the best metal there is.";
+            if (!Reforgeable(item))
+                return "Artifacts keep their own metal; they can still be reinforced.";
+            if (ReforgeCost(s, item) > s.gold)
+                return "Not enough gold: reforging costs " + ReforgeCost(s, item) + ".";
+            return null;
+        }
+
+        // Returns the new item (the old one is dropped), or null.
+        public static DaggerfallUnityItem Reforge(IdleWorld w, DaggerfallUnityItem item)
+        {
+            IdleSave s = w.s;
+            if (CannotReforge(s, item) != null)
+                return null;
+            int rung = Rung(item) + 1;
+            int metal = MetalAt(item, rung);
+            DaggerfallUnityItem made;
+            UnityEngine.Random.State keep = UnityEngine.Random.state;
+            try
+            {
+                if (item.ItemGroup == ItemGroups.Weapons)
+                    made = ItemBuilder.CreateWeapon((Weapons)item.TemplateIndex, (WeaponMaterialTypes)metal);
+                else
+                {
+                    ArmorMaterialTypes material = (rung == 1) ? ArmorMaterialTypes.Chain : (ArmorMaterialTypes)((int)ArmorMaterialTypes.Iron + metal);
+                    made = ItemBuilder.CreateArmor((Genders)s.gender, (Races)s.race, (Armor)item.TemplateIndex, material, item.CurrentVariant);
+                }
+            }
+            finally
+            {
+                UnityEngine.Random.state = keep;
+            }
+            if (made == null)
+                return null;
+            // A magic item keeps its name and its magic.
+            if (item.IsEnchanted)
+            {
+                made.shortName = item.shortName;
+                made.legacyMagic = (item.legacyMagic != null) ? (DaggerfallConnect.FallExe.DaggerfallEnchantment[])item.legacyMagic.Clone() : null;
+                made.customMagic = (item.customMagic != null) ? (DaggerfallWorkshop.Game.MagicAndEffects.CustomEnchantment[])item.customMagic.Clone() : null;
+            }
+            Spend(s, metal, ReforgeIngots(item), ReforgeGold(item));
+            int[] old = AffixesOf(item);
+            if (old != null)
+            {
+                affixes[made] = (int[])old.Clone();
+                affixes.Remove(item);
+            }
+            for (int i = 0; i < w.gear.Length; i++)
+                if (w.gear[i] == item)
+                    w.gear[i] = made;
+            int at = w.stash.IndexOf(item);
+            if (at >= 0)
+                w.stash[at] = made;
+            s.reforges++;
+            RefreshBonus(w);
+            return made;
+        }
+
+        // At home: spend up to half the gold on the cheapest next step for worn gear, again and again. A piece at
+        // its metal's top is reforged instead. Off when the orders say so.
+        static int AutoSmith(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            if (s.noAutoSmith)
+                return 0;
+            int spent = 0;
+            for (int guard = 0; guard < 200; guard++)
+            {
+                DaggerfallUnityItem best = null;
+                bool reforge = false;
+                int bestCost = int.MaxValue;
+                for (int i = 0; i < w.gear.Length; i++)
+                {
+                    DaggerfallUnityItem item = w.gear[i];
+                    if (item == null || !Works(item))
+                        continue;
+                    bool atTop = Level(item) >= LevelCap(item);
+                    if (atTop && Rung(item) >= TopRung(item))
+                        continue;
+                    if (atTop && !Reforgeable(item))
+                        continue;           // an artifact at its top stays as it is
+                    int cost = atTop ? ReforgeCost(s, item) : StepCost(s, item);
+                    if (cost < bestCost)
+                    {
+                        best = item;
+                        bestCost = cost;
+                        reforge = atTop;
+                    }
+                }
+                if (best == null || bestCost * 2 > s.gold)
+                    break;
+                int before = s.gold;
+                if (reforge ? Reforge(w, best) == null : !Reinforce(w, best))
+                    break;
+                spent += before - s.gold;
+            }
+            return spent;
+        }
+
+        // "+7 Keen Steel Longsword of the Leech".
         public static string Name(DaggerfallUnityItem item)
         {
             if (item == null)
@@ -1851,7 +2143,7 @@ namespace IdleAdventurer
                 else
                     after += " " + IdleData.AffixWords[a[i]];
             }
-            return before + item.LongName + after;
+            return ((a[0] > 0) ? "+" + a[0] + " " : "") + before + item.LongName + after;
         }
 
         // What the affixes do, one line each, for item cards.
@@ -1865,29 +2157,46 @@ namespace IdleAdventurer
             return lines;
         }
 
-        // Rolls affixes onto a dropped weapon or piece of armor. rarity -1 rolls it: deeper floors and champions
-        // give more; otherwise the given rarity is used.
-        static DaggerfallUnityItem Affixed(IdleWorld w, DaggerfallUnityItem item, int rarity)
+        // What the reinforcement level adds, for item cards.
+        public static string LevelLine(DaggerfallUnityItem item)
+        {
+            int level = Level(item);
+            string top = " (" + MetalName(item) + " reaches +" + LevelCap(item) + ")";
+            if (item.ItemGroup == ItemGroups.Weapons)
+                return "+" + level + ": " + (level * IdleData.LevelDamagePercent) + "% more base damage" + top;
+            return "+" + level + ": +" + (level / 2) + " armor" + top;
+        }
+
+        // Rolls a dropped weapon or piece of armor: enchantments (deeper floors and champions give more) and, deeper
+        // down, a few reinforcement levels. A boss's piece comes at about half the floor in levels with one strong
+        // enchantment. enchants -1 rolls them.
+        static DaggerfallUnityItem Affixed(IdleWorld w, DaggerfallUnityItem item, int enchants, bool boss)
         {
             IdleSave s = w.s;
             int slot = SlotFor(item);
             if (item == null || slot < 0)
                 return item;
-            if (rarity < 0)
+            int level = 0;
+            if (boss)
+                level = Mathf.Max(1, s.floor / 2);
+            else if (enchants < 0 && Roll(s, Mathf.Min(30, s.floor * 2)))
+                level = Range(s, 1, Mathf.Min(3, 1 + s.floor / 8));
+            if (enchants < 0)
             {
                 int chance = Mathf.Min(40, 8 + s.floor) + (IsChampion(s) ? 20 : 0);
-                if (!Roll(s, chance))
-                    return item;
-                rarity = Roll(s, 25 + (IsChampion(s) ? 25 : 0)) ? IdleData.RarityRare : IdleData.RarityFine;
+                enchants = !Roll(s, chance) ? 0 : Roll(s, 25 + (IsChampion(s) ? 25 : 0)) ? 2 : 1;
             }
+            level = Mathf.Min(level, LevelCap(item));
+            if (level == 0 && enchants == 0)
+                return item;
             bool weapon = slot == IdleData.SlotWeapon;
-            int[] a = { rarity, -1, 0, -1, 0 };
-            int count = (rarity >= IdleData.RarityRare) ? 2 : 1;
-            // A Fine item gets a prefix or a suffix; Rare and Heroic get one of each.
+            int[] a = DataFor(item);
+            a[0] = level;
+            // One enchantment is a prefix or a suffix; two are one of each.
             bool prefixFirst = Roll(s, 50);
-            for (int n = 0; n < count; n++)
+            for (int n = 0; n < enchants && n < 2; n++)
             {
-                bool prefix = (count == 2) ? (n == 0) : prefixFirst;
+                bool prefix = (enchants == 2) ? (n == 0) : prefixFirst;
                 List<int> pool = new List<int>();
                 for (int k = 0; k < IdleData.AffixKinds; k++)
                     if (IdleData.AffixPrefix[k] == prefix && (IdleData.AffixOn[k] == 2 || (IdleData.AffixOn[k] == 1) == weapon))
@@ -1896,13 +2205,13 @@ namespace IdleAdventurer
                     continue;
                 int kind = pool[Range(s, 0, pool.Count - 1)];
                 int value = Range(s, IdleData.AffixMin[kind], IdleData.AffixMax[kind]) * (100 + 6 * Mathf.Max(0, s.floor - 1)) / 100;
-                if (rarity == IdleData.RarityHeroic)
+                if (boss)
                     value = value * 3 / 2;
                 a[1 + n * 2] = kind;
                 a[2 + n * 2] = Mathf.Max(1, value);
             }
-            affixes[item] = a;
-            s.affixesFound++;
+            if (enchants > 0)
+                s.affixesFound++;
             return item;
         }
 
@@ -1932,21 +2241,35 @@ namespace IdleAdventurer
             return Mathf.Max(5, IdleData.AttackInterval(s.stats[IdleData.StatSpeed]) * (100 - s.bonus[IdleData.AffixSwift]) / 100);
         }
 
+        // A piece's armor points: the game's own number, Sturdy, and one for every two reinforcement levels.
+        public static int ArmorValue(DaggerfallUnityItem item, bool shield)
+        {
+            if (item == null)
+                return 0;
+            return (shield ? item.GetShieldArmorValue() : item.GetMaterialArmorValue()) + AffixValue(item, IdleData.AffixSturdy) + Level(item) / 2;
+        }
+
+        // A weapon's base damage roll, raised by its reinforcement level.
+        static int Reinforced(DaggerfallUnityItem weapon, int damage)
+        {
+            return damage * (100 + IdleData.LevelDamagePercent * Level(weapon)) / 100;
+        }
+
         // Armor worth for auto-equip: armor points first, other affixes break ties and small gaps.
         static float ArmorScore(DaggerfallUnityItem item, bool shield)
         {
             if (item == null)
                 return 0f;
-            float armor = (shield ? item.GetShieldArmorValue() : item.GetMaterialArmorValue()) + AffixValue(item, IdleData.AffixSturdy);
+            float armor = ArmorValue(item, shield);
             int[] a = AffixesOf(item);
             int others = 0;
             for (int i = 1; a != null && i + 1 < a.Length; i += 2)
                 if (a[i] >= 0 && a[i] != IdleData.AffixSturdy)
                     others++;
-            return armor * 10f + others * 6f;
+            return armor * 10f + others * 6f + (Level(item) % 2) * 0.5f;
         }
 
-        // "r,k,v,k,v" per item, items separated by ';' and in the same order as the item list.
+        // "l,k,v,k,v,k,v" per item, items separated by ';' and in the same order as the item list.
         static string PackAffixes(List<DaggerfallUnityItem> items)
         {
             System.Text.StringBuilder b = new System.Text.StringBuilder();
@@ -1965,6 +2288,7 @@ namespace IdleAdventurer
             return b.ToString();
         }
 
+        // Also reads the older "rarity,k,v,k,v" form: Fine and Rare keep their affixes, Heroic becomes +3.
         static void UnpackAffixes(List<DaggerfallUnityItem> items, string text)
         {
             if (string.IsNullOrEmpty(text))
@@ -1975,14 +2299,28 @@ namespace IdleAdventurer
                 if (parts[i].Length == 0)
                     continue;
                 string[] fields = parts[i].Split(',');
-                if (fields.Length != 5)
+                if (fields.Length != 5 && fields.Length != DataLength)
                     continue;
-                int[] a = new int[5];
+                int[] read = new int[fields.Length];
                 bool ok = true;
-                for (int j = 0; j < 5; j++)
-                    ok &= int.TryParse(fields[j], out a[j]);
-                if (ok && a[0] >= 0 && a[0] <= IdleData.RarityHeroic && a[1] < IdleData.AffixKinds && a[3] < IdleData.AffixKinds)
+                for (int j = 0; j < fields.Length; j++)
+                    ok &= int.TryParse(fields[j], out read[j]);
+                if (!ok || read[0] < 0)
+                    continue;
+                int[] a = new int[DataLength];
+                for (int j = 1; j < a.Length; j += 2)
+                    a[j] = -1;
+                for (int j = 1; j < read.Length; j++)
+                    a[j] = read[j];
+                a[0] = (fields.Length == 5) ? ((read[0] >= 3) ? 3 : 0) : read[0];
+                for (int j = 1; j < a.Length; j += 2)
+                    if (a[j] >= IdleData.AffixKinds)
+                        ok = false;
+                if (ok)
+                {
+                    a[0] = Mathf.Min(a[0], LevelCap(items[i]));
                     affixes[items[i]] = a;
+                }
             }
         }
 
@@ -2009,7 +2347,7 @@ namespace IdleAdventurer
 
         public static int SalePrice(DaggerfallUnityItem item)
         {
-            return Mathf.Max(1, (int)((long)item.value * item.stackCount * RarityOf(item) / 100 / IdleData.SaleDivisor));
+            return Mathf.Max(1, (int)((long)item.value * item.stackCount * WorthOf(item) / 100 / IdleData.SaleDivisor));
         }
 
         // Puts a spare weapon or piece of armor in the stash. When the stash is full the cheapest thing in it is
@@ -2099,7 +2437,7 @@ namespace IdleAdventurer
                         ? ItemBuilder.CreateRandomWeapon(level)
                         : ItemBuilder.CreateRandomArmor(level, (Genders)s.gender, (Races)s.race);
                     if (item != null && SlotFor(item) >= 0)
-                        w.shop.Add(Roll(s, 25) ? Affixed(w, item, IdleData.RarityFine) : item);
+                        w.shop.Add(Roll(s, 25) ? Affixed(w, item, 1, false) : item);
                 }
             }
             finally
@@ -2110,7 +2448,7 @@ namespace IdleAdventurer
 
         public static int ShopPrice(DaggerfallUnityItem item)
         {
-            return Mathf.Max(5, (int)((long)item.value * item.stackCount * RarityOf(item) / 100));
+            return Mathf.Max(5, (int)((long)item.value * item.stackCount * WorthOf(item) / 100));
         }
 
         // Buys a shop item into the stash. Returns false when there is no gold or no room for it.
@@ -2219,11 +2557,13 @@ namespace IdleAdventurer
                 item.currentCondition = item.maxCondition;
             }
 
+            int smith = AutoSmith(w);
+
             Restock(w);
             RefreshBonus(w);
             if (w.record)
                 w.Emit(IdleData.EvHome, "Back in town: " + s.runKills + " kills, " + s.runGold + " gold found, loot sold for " + sold
-                    + ", repairs " + repairs + ((bought > 0) ? ", " + bought + " potion(s) bought" : "") + ((equipped > 0) ? ", " + equipped + " upgrade(s)" : ""));
+                    + ", repairs " + repairs + ((smith > 0) ? ", smith " + smith : "") + ((bought > 0) ? ", " + bought + " potion(s) bought" : "") + ((equipped > 0) ? ", " + equipped + " upgrade(s)" : ""));
             s.carried = 0;
         }
 
@@ -2238,7 +2578,7 @@ namespace IdleAdventurer
                     gear += (gear.Length > 0 ? ", " : "") + Name(w.gear[i]);
             return "level " + s.level + ", health " + s.maxHealth + ", gold " + s.gold + ", runs " + s.expeditions + " (cleared " + s.clears
                 + ", retreated " + s.retreats + ", died " + s.deaths + "), kills " + s.kills + ", deepest floor " + s.deepestFloor
-                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", spells " + s.spellsCast + "/" + s.enemySpellsCast + ", affixed items " + s.affixesFound + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
+                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", spells " + s.spellsCast + "/" + s.enemySpellsCast + ", enchanted items " + s.affixesFound + ", levels bought " + s.levelsBought + ", reforges " + s.reforges + ", smith gold " + s.smithGold + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
                 + (long)(s.goldEarned / Mathf.Max(0.05f, s.clock / 36000f)) + " | " + gear;
         }
 

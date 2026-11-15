@@ -401,7 +401,21 @@ dungeons, into power. Every one is a ladder whose next step costs more than the 
   new hero can start as a warrior, mage or rogue (their skills, stats, starting gear and spells), or picks one of
   the game's own classes.
 
-### 13.9 Phase order
+### 13.9 Phase 1 as built (0.10.0)
+
+- Reinforcement, reforging and the Smith screen (S in the hub) are in. Ingots are bought at the smith for now; the
+  pouch exists for mining. Magic items can be reforged and keep their magic; only artifacts cannot.
+- Auto-smith (on by default, toggled on the Smith screen): coming home, the hero pays for the cheapest next step
+  of worn gear again and again while it costs at most half the gold.
+- Bosses now drop a weapon or armor piece at about +floor/2 with one enchantment at 1.5 strength, instead of the
+  game's random magic item.
+- Balance (200 runs, seeded): first 10 runs unchanged at 0.4 deaths; 6.3 million gold spent at the smith, 168k
+  left (was 1.2 million); deepest floor 41 (was 35); gear ends at +21/+22 daedric and orcish. Reaching daedric by
+  reforging comes fast once gold flows; phase 2 should stop selling the high ingots.
+- The walking view now drops its route onto the real floor, so the camera climbs stairs instead of floating along
+  the navigation ramp.
+
+### 13.10 Phase order
 
 1. Reinforcement and reforging, with ingots bought from the smith only; rarity replaced, saves migrated.
 2. Mining, pickaxes, the materials pouch and the smelter queue.

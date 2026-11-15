@@ -309,7 +309,7 @@ namespace IdleAdventurer
             if (best == null || bestLength < MinRoute)
                 return false;
 
-            route = Centre(best, filter);
+            route = Ground(Centre(best, filter));
             along = new float[route.Length];
             for (int i = 1; i < route.Length; i++)
                 along[i] = along[i - 1] + Vector3.Distance(route[i - 1], route[i]);
@@ -420,6 +420,36 @@ namespace IdleAdventurer
             return points.ToArray();
         }
 
+        // The navigation surface runs over stairs as a straight ramp, so a route on it floats above some steps and
+        // sinks into others. This cuts the route into short pieces and drops each one onto the real floor below it.
+        static Vector3[] Ground(Vector3[] points)
+        {
+            const float step = 0.25f;
+            List<Vector3> fine = new List<Vector3>();
+            for (int i = 0; i < points.Length; i++)
+            {
+                if (i > 0)
+                {
+                    float span = Vector3.Distance(points[i - 1], points[i]);
+                    int pieces = Mathf.Max(1, Mathf.CeilToInt(span / step));
+                    for (int n = 1; n < pieces; n++)
+                        fine.Add(Vector3.Lerp(points[i - 1], points[i], n / (float)pieces));
+                }
+                fine.Add(points[i]);
+            }
+            for (int i = 0; i < fine.Count; i++)
+            {
+                RaycastHit hit;
+                Vector3 p = fine[i];
+                if (Physics.Raycast(p + Vector3.up * 0.9f, Vector3.down, out hit, 2.1f) && hit.normal.y > 0.5f)
+                {
+                    p.y = hit.point.y;
+                    fine[i] = p;
+                }
+            }
+            return fine.ToArray();
+        }
+
         // ------------------------------------------------------------------ placing things on the route
 
         public Vector3 PointAt(float distance)
@@ -461,7 +491,11 @@ namespace IdleAdventurer
             if (snap || (here - eye.transform.position).magnitude > 6f)
                 eye.transform.rotation = want;
             else
+            {
                 eye.transform.rotation = Quaternion.Slerp(eye.transform.rotation, want, Mathf.Clamp01(dt * 4f));
+                // Step up and down stairs a little softly, as the game's own player does.
+                here.y = Mathf.Lerp(eye.transform.position.y, here.y, Mathf.Clamp01(dt * 14f));
+            }
             eye.transform.position = here;
             snap = false;
         }

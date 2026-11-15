@@ -246,14 +246,14 @@ namespace IdleAdventurer
             return White;
         }
 
-        // Colour for a champion's or boss's name, and the tint of its sprite.
-        public static Color RarityColor(int rarity)
+        // Colour of an item's name by its number of enchantments.
+        public static Color EnchantColor(int enchants)
         {
-            switch (rarity)
+            switch (enchants)
             {
-                case IdleData.RarityFine: return Blue;
-                case IdleData.RarityRare: return new Color(1f, 0.86f, 0.3f, 1f);
-                case IdleData.RarityHeroic: return new Color(1f, 0.55f, 0.15f, 1f);
+                case 1: return Blue;
+                case 2: return new Color(1f, 0.86f, 0.3f, 1f);
+                case 3: return new Color(1f, 0.55f, 0.15f, 1f);
             }
             return White;
         }
@@ -422,6 +422,11 @@ namespace IdleAdventurer
                 DaggerfallUI.UIManager.PushWindow(new IdleSpellsWindow(DaggerfallUI.UIManager, this));
                 return;
             }
+            if (Input.GetKeyDown(KeyCode.S) || click == HubCanvas.BtnSmith)
+            {
+                DaggerfallUI.UIManager.PushWindow(new IdleSmithWindow(DaggerfallUI.UIManager, this));
+                return;
+            }
             if (Input.GetKeyDown(KeyCode.K) || click == HubCanvas.BtnSkip)
                 s.skipCleared = (s.skipCleared == 0) ? 1 : 0;
             if (Input.GetKeyDown(KeyCode.C) || click == HubCanvas.BtnHero)
@@ -473,7 +478,7 @@ namespace IdleAdventurer
 
         class HubCanvas : BaseScreenComponent
         {
-            public const int BtnGo = 1, BtnView = 2, BtnRepeat = 3, BtnDeeper = 4, BtnLess = 5, BtnMore = 6, BtnSpeed = 7, BtnTest = 8, BtnBack = 9, BtnHero = 10, BtnMap = 11, BtnSkip = 12, BtnOrders = 13, BtnSpells = 14;
+            public const int BtnGo = 1, BtnView = 2, BtnRepeat = 3, BtnDeeper = 4, BtnLess = 5, BtnMore = 6, BtnSpeed = 7, BtnTest = 8, BtnBack = 9, BtnHero = 10, BtnMap = 11, BtnSkip = 12, BtnOrders = 13, BtnSpells = 14, BtnSmith = 15;
             public string[] Report;
             public readonly IdleButtons Buttons = new IdleButtons();
 
@@ -641,6 +646,7 @@ namespace IdleAdventurer
                 bx += Buttons.Add(BtnMap, "Destination (M)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnOrders, "Orders (O)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnSpells, "Spells (L)", bx, bottom, tall, false) + gap;
+                bx += Buttons.Add(BtnSmith, "Smith (S)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnSpeed, "Speed " + IdleClock.Speed + "x (F)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnTest, "Test (T)", bx, bottom, tall, false) + gap;
                 Buttons.Add(BtnBack, "Back (Esc)", bx, bottom, tall, false);

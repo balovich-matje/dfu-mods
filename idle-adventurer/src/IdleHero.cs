@@ -176,7 +176,7 @@ namespace IdleAdventurer
 
         static int ArmorOf(DaggerfallUnityItem item, int slot)
         {
-            return (slot == IdleData.SlotShield) ? item.GetShieldArmorValue() : item.GetMaterialArmorValue();
+            return IdleSim.ArmorValue(item, slot == IdleData.SlotShield);
         }
 
         // The short number shown at the end of a row: damage for a weapon, armor for anything else.
@@ -186,7 +186,8 @@ namespace IdleAdventurer
             if (slot == IdleData.SlotWeapon)
             {
                 int mod = item.GetWeaponMaterialModifier();
-                return (item.GetBaseDamageMin() + mod) + "-" + (item.GetBaseDamageMax() + mod);
+                int pct = 100 + IdleData.LevelDamagePercent * IdleSim.Level(item);
+                return (item.GetBaseDamageMin() * pct / 100 + mod) + "-" + (item.GetBaseDamageMax() * pct / 100 + mod);
             }
             if (slot >= 0)
                 return Signed(ArmorOf(item, slot));
@@ -284,8 +285,9 @@ namespace IdleAdventurer
                 string name = IdleSim.Name(item);
                 while (name.Length > 4 && x + IdleUi.Width(name, sc) > wornX - r.height * 0.3f)
                     name = name.Substring(0, name.Length - 4) + "..";
-                // Name in its rarity colour; a green mark in front when it beats what is worn.
-                IdleUi.Text(name, x, textY, sc, (better && IdleSim.Rarity(item) == IdleData.RarityCommon) ? IdleUi.Good : IdleUi.RarityColor(IdleSim.Rarity(item)));
+                // Name coloured by its enchantments; a green mark in front when it beats what is worn.
+                int enchants = IdleSim.Enchants(item);
+                IdleUi.Text(name, x, textY, sc, (better && enchants == 0) ? IdleUi.Good : IdleUi.EnchantColor(enchants));
                 if (better)
                     IdleUi.Box(new Rect(x - r.height * 0.3f, r.y + r.height * 0.2f, Mathf.Max(2f, r.height * 0.12f), r.height * 0.6f), IdleUi.Good);
                 IdleUi.Text(worn, wornX, textY, sc * 0.85f, (condition < 30) ? IdleUi.Bad : IdleUi.Muted);
@@ -393,15 +395,20 @@ namespace IdleAdventurer
                     DaggerfallUnityItem other = (inStash && slot >= 0) ? w.gear[slot] : null;
                     IdleUi.Text(IdleSim.Name(item), cx, cy, sc * 1.05f, IdleUi.Gold);
                     cy += line * 1.3f;
-                    int rarity = IdleSim.Rarity(item);
-                    if (rarity > IdleData.RarityCommon)
+                    if (slot >= 0)
                     {
-                        IdleUi.Text(IdleData.RarityNames[rarity], cx, cy, sc * 0.9f, IdleUi.RarityColor(rarity));
+                        IdleUi.Text(IdleSim.LevelLine(item), cx, cy, sc * 0.9f, IdleUi.Muted);
+                        cy += line;
+                    }
+                    int enchants = IdleSim.Enchants(item);
+                    if (enchants > 0)
+                    {
+                        IdleUi.Text(IdleData.EnchantNames[Mathf.Min(enchants, IdleData.MaxEnchants)], cx, cy, sc * 0.9f, IdleUi.EnchantColor(enchants));
                         cy += line;
                         List<string> extra = IdleSim.AffixLines(item);
                         for (int i = 0; i < extra.Count; i++)
                         {
-                            IdleUi.Text(extra[i], cx + line * 0.5f, cy, sc * 0.9f, IdleUi.RarityColor(rarity));
+                            IdleUi.Text(extra[i], cx + line * 0.5f, cy, sc * 0.9f, IdleUi.EnchantColor(enchants));
                             cy += line;
                         }
                     }
