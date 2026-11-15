@@ -102,6 +102,25 @@ namespace IdleAdventurer
         public static readonly int[] SpellPrice = { 0, 120, 900, 700, 3000, 300, 450, 1500, 1200 };
         public const int SpellKinds = 9;
 
+        // Affixes: a prefix and a suffix that dropped weapons and armor can roll. Values are at floor 1 and grow 6%
+        // a floor. Kept beside the item in our own save, never inside the item.
+        public const int AffixKeen = 0, AffixCruel = 1, AffixLeech = 2, AffixSwift = 3, AffixSturdy = 4, AffixTough = 5,
+            AffixMending = 6, AffixNimble = 7, AffixWarding = 8, AffixSorcery = 9, AffixArcane = 10;
+        public const int AffixKinds = 11;
+        public static readonly string[] AffixWords = { "Keen", "Cruel", "of the Leech", "of Swiftness", "Sturdy", "of Toughness",
+            "of Mending", "Nimble", "of Warding", "of Sorcery", "Arcane" };
+        public static readonly bool[] AffixPrefix = { true, true, false, false, true, false, false, true, false, false, true };
+        public static readonly int[] AffixOn = { 1, 1, 1, 1, 0, 0, 0, 0, 0, 2, 2 };        // 1 weapons, 0 armor, 2 either
+        public static readonly int[] AffixMin = { 3, 1, 2, 4, 1, 1, 10, 2, 2, 3, 3 };
+        public static readonly int[] AffixMax = { 8, 3, 6, 10, 3, 2, 30, 6, 6, 8, 10 };
+        public static readonly int[] AffixCap = { 60, 40, 100, 40, 99, 15, 200, 40, 40, 50, 200 };
+        public static readonly string[] AffixText = { "+{0} to hit", "+{0} damage", "heals {0} for every kill", "attacks {0}% faster",
+            "+{0} armor", "{0} less damage from every hit", "heals {0}% faster between fights", "+{0} dodging",
+            "+{0}% to resist spells", "spells cost {0}% less", "+{0} magicka" };
+        public const int RarityCommon = 0, RarityFine = 1, RarityRare = 2, RarityHeroic = 3;
+        public static readonly string[] RarityNames = { "Common", "Fine", "Rare", "Heroic" };
+        public static readonly int[] RarityPrice = { 100, 150, 220, 320 };      // percent of the item's price
+
         // What spells did to the current fight.
         public const int StatusHidden = 1;          // the enemy is invisible or a chameleon: the hero's swings -30 to hit
         public const int StatusEnemyWard = 2;       // the enemy's Spell Shield: the hero's spells do half
@@ -282,6 +301,12 @@ namespace IdleAdventurer
         public int enemyCasts;              // spells the enemy can still cast this fight
         public int spellsCast;
         public int enemySpellsCast;
+        public string gearAffixes;          // affixes of the items in gearBlob, haulBlob, stashBlob, shopBlob, in the same order
+        public string haulAffixes;
+        public string stashAffixes;
+        public string shopAffixes;
+        public int affixesFound;
+        [NonSerialized] public int[] bonus = new int[IdleData.AffixKinds];     // worn affixes, summed and capped
 
         // This run and lifetime tallies.
         public int runKills;
@@ -419,6 +444,7 @@ namespace IdleAdventurer
             Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Buckler, ArmorMaterialTypes.Leather));
             Arrays(s);
             Restock(w);
+            RefreshBonus(w);
             return w;
         }
 
@@ -486,6 +512,23 @@ namespace IdleAdventurer
             w.s.haulBlob = Pack(w.haul);
             w.s.stashBlob = Pack(w.stash);
             w.s.shopBlob = Pack(w.shop);
+            w.s.gearAffixes = PackAffixes(worn);
+            w.s.haulAffixes = PackAffixes(w.haul);
+            w.s.stashAffixes = PackAffixes(w.stash);
+            w.s.shopAffixes = PackAffixes(w.shop);
+
+            // Forget affixes of items that are gone (sold, dropped, left behind).
+            Dictionary<DaggerfallUnityItem, int[]> keep = new Dictionary<DaggerfallUnityItem, int[]>();
+            List<DaggerfallUnityItem> all = new List<DaggerfallUnityItem>(worn);
+            all.AddRange(w.haul);
+            all.AddRange(w.stash);
+            all.AddRange(w.shop);
+            for (int i = 0; i < all.Count; i++)
+                if (AffixesOf(all[i]) != null)
+                    keep[all[i]] = AffixesOf(all[i]);
+            affixes.Clear();
+            foreach (KeyValuePair<DaggerfallUnityItem, int[]> pair in keep)
+                affixes[pair.Key] = pair.Value;
         }
 
         public static IdleWorld FromSave(IdleSave s)
@@ -493,12 +536,17 @@ namespace IdleAdventurer
             IdleWorld w = new IdleWorld();
             w.s = s;
             List<DaggerfallUnityItem> worn = Unpack(s.gearBlob);
+            UnpackAffixes(worn, s.gearAffixes);
             for (int i = 0; i < worn.Count; i++)
                 Equip(w, worn[i]);
             w.haul = Unpack(s.haulBlob);
             w.stash = Unpack(s.stashBlob);
             w.shop = Unpack(s.shopBlob);
+            UnpackAffixes(w.haul, s.haulAffixes);
+            UnpackAffixes(w.stash, s.stashAffixes);
+            UnpackAffixes(w.shop, s.shopAffixes);
             Arrays(s);
+            RefreshBonus(w);
             return w;
         }
 
@@ -636,14 +684,14 @@ namespace IdleAdventurer
             int value = 100;
             DaggerfallUnityItem piece = w.gear[part];
             if (Works(piece))
-                value -= piece.GetMaterialArmorValue() * 5;
+                value -= (piece.GetMaterialArmorValue() + AffixValue(piece, IdleData.AffixSturdy)) * 5;
             DaggerfallUnityItem shield = w.gear[IdleData.SlotShield];
             if (Works(shield))
             {
                 BodyParts[] covered = shield.GetShieldProtectedBodyParts();
                 for (int i = 0; i < covered.Length; i++)
                     if ((int)covered[i] == part)
-                        value -= shield.GetShieldArmorValue() * 5;
+                        value -= (shield.GetShieldArmorValue() + AffixValue(shield, IdleData.AffixSturdy)) * 5;
             }
             return value;
         }
@@ -678,9 +726,10 @@ namespace IdleAdventurer
             if (skill < 0 || skill >= s.skills.Length)
                 return 0f;
             int mod = item.GetWeaponMaterialModifier();
-            float damage = (item.GetBaseDamageMin() + item.GetBaseDamageMax()) / 2f + StrengthBonus(s) + mod;
-            float chance = Mathf.Clamp(s.skills[skill] + mod * 10 + 20, 3, 97);
-            return Mathf.Max(0f, damage) * chance + item.NativeMaterialValue * 0.01f;
+            float damage = (item.GetBaseDamageMin() + item.GetBaseDamageMax()) / 2f + StrengthBonus(s) + mod + AffixValue(item, IdleData.AffixCruel);
+            float chance = Mathf.Clamp(s.skills[skill] + mod * 10 + 20 + AffixValue(item, IdleData.AffixKeen), 3, 97);
+            float speed = 100f / Mathf.Max(50f, 100f - AffixValue(item, IdleData.AffixSwift));
+            return Mathf.Max(0f, damage) * chance * speed + AffixValue(item, IdleData.AffixLeech) * 20f + item.NativeMaterialValue * 0.01f;
         }
 
         static void Tally(IdleWorld w, int skill)
@@ -829,7 +878,7 @@ namespace IdleAdventurer
             }
             if (s.health >= s.maxHealth)
                 return;
-            int perSecondPerMille = 10 + s.skills[(int)DFCareer.Skills.Medical] / 2;
+            int perSecondPerMille = (10 + s.skills[(int)DFCareer.Skills.Medical] / 2) * (100 + s.bonus[IdleData.AffixMending]) / 100;
             s.healCarry += ticks * s.maxHealth * perSecondPerMille;
             int unit = 1000 * IdleData.TicksPerSecond;
             int heal = s.healCarry / unit;
@@ -955,7 +1004,8 @@ namespace IdleAdventurer
             s.enemyCasts = (EnemySpells(e, EnemyLevel(s, e)).Length > 0) ? 1 + EnemyLevel(s, e) / 6 + (((s.enemyTraits & IdleData.TraitBoss) != 0) ? 2 : 0) : 0;
 
             int enemySpeed = (e.career != null) ? e.career.Speed : 50;
-            s.heroTimer = Range(s, 3, IdleData.AttackInterval(s.stats[IdleData.StatSpeed]));
+            RefreshBonus(w);
+            s.heroTimer = Range(s, 3, HeroInterval(s));
             s.enemyTimer = Range(s, 3, EnemyInterval(s, e));
             s.phase = IdleData.PhaseFight;
             if (w.record)
@@ -1071,12 +1121,12 @@ namespace IdleAdventurer
 
         public static int MaxMagicka(IdleSave s)
         {
-            return IdleData.MaxMagicka(s.stats[IdleData.StatIntelligence], s.level);
+            return IdleData.MaxMagicka(s.stats[IdleData.StatIntelligence], s.level) + s.bonus[IdleData.AffixArcane];
         }
 
         public static int Cost(IdleSave s, int spell)
         {
-            return IdleData.SpellCost(spell, s.level, s.skills[IdleData.SpellSchool[spell]]);
+            return Mathf.Max(1, IdleData.SpellCost(spell, s.level, s.skills[IdleData.SpellSchool[spell]]) * (100 - s.bonus[IdleData.AffixSorcery]) / 100);
         }
 
         // Percent of a spell's damage an enemy takes, from its career's tolerances.
@@ -1270,7 +1320,7 @@ namespace IdleAdventurer
             // The hero's saving throw: Willpower and Luck, much better under Spell Shield. Effects that are not
             // damage are resisted twice as often.
             bool ward = (s.fightStatus & IdleData.StatusWard) != 0;
-            int save = 10 + (s.stats[IdleData.StatWillpower] - 50) / 2 + s.stats[IdleData.StatLuck] / 10 + (ward ? 40 : 0);
+            int save = 10 + (s.stats[IdleData.StatWillpower] - 50) / 2 + s.stats[IdleData.StatLuck] / 10 + (ward ? 40 : 0) + s.bonus[IdleData.AffixWarding];
             if (kind != EDamage && kind != EAbsorb)
                 save *= 2;
             if (Roll(s, Mathf.Clamp(save, 3, 90)))
@@ -1383,7 +1433,7 @@ namespace IdleAdventurer
         {
             IdleSave s = w.s;
             EnemyInfo e = Enemy(s.enemyId);
-            s.heroTimer = IdleData.AttackInterval(s.stats[IdleData.StatSpeed]);
+            s.heroTimer = HeroInterval(s);
 
             s.guarding = 0;
             int action = (s.recall != 0) ? IdleData.DoFlee : Choose(w, e);
@@ -1435,7 +1485,7 @@ namespace IdleAdventurer
                 skill = (int)DFCareer.Skills.HandToHand;
             int chance = s.skills[skill];
             if (weapon != null)
-                chance += weapon.GetWeaponMaterialModifier() * 10;
+                chance += weapon.GetWeaponMaterialModifier() * 10 + s.bonus[IdleData.AffixKeen];
 
             int enemySkill = Mathf.Min(100, EnemyLevel(s, e) * 5 + 30);
             int enemyLuck = (e.career != null) ? e.career.Luck : 50;
@@ -1472,7 +1522,7 @@ namespace IdleAdventurer
                     if (weapon.NativeMaterialValue == (int)WeaponMaterialTypes.Silver)
                         damage *= 2;
                 }
-                damage += StrengthBonus(s) + weapon.GetWeaponMaterialModifier();
+                damage += StrengthBonus(s) + weapon.GetWeaponMaterialModifier() + s.bonus[IdleData.AffixCruel];
                 Wear(s, weapon, damage);
             }
             else
@@ -1515,7 +1565,7 @@ namespace IdleAdventurer
             int armor = ArmorAt(w, part);
             int luckDiff = ((e.career != null) ? e.career.Luck : 50) - s.stats[IdleData.StatLuck];
             int agilityDiff = ((e.career != null) ? e.career.Agility : 50) - s.stats[IdleData.StatAgility];
-            int dodging = s.skills[(int)DFCareer.Skills.Dodging];
+            int dodging = s.skills[(int)DFCareer.Skills.Dodging] + s.bonus[IdleData.AffixNimble];
             Tally(w, (int)DFCareer.Skills.Dodging);
 
             int damage = 0;
@@ -1550,6 +1600,7 @@ namespace IdleAdventurer
                 damage = damage * 8 / 5;
             if ((s.enemyTraits & IdleData.TraitVampiric) != 0)
                 s.enemyHealth = Mathf.Min(s.enemyMaxHealth, s.enemyHealth + damage / 2);
+            damage = Mathf.Max(1, damage - s.bonus[IdleData.AffixTough]);
 
             DaggerfallUnityItem shield = w.gear[IdleData.SlotShield];
             bool onShield = false;
@@ -1580,6 +1631,8 @@ namespace IdleAdventurer
             s.roomsLeft--;
             if (w.record)
                 w.Emit(IdleData.EvKill, "The " + Foe(s, e) + " is dead");
+            if (s.bonus[IdleData.AffixLeech] > 0 && s.health < s.maxHealth)
+                s.health = Mathf.Min(s.maxHealth, s.health + s.bonus[IdleData.AffixLeech]);
             bool boss = (s.enemyTraits & IdleData.TraitBoss) != 0;
             int rolls = boss ? 3 : IsChampion(s) ? 2 : 1;
             for (int i = 0; i < rolls; i++)
@@ -1587,7 +1640,8 @@ namespace IdleAdventurer
             if (boss)
             {
                 s.bossesKilled++;
-                Take(w, Built(s, delegate (int level) { return ItemBuilder.CreateRandomMagicItem(level, (Genders)s.gender, (Races)s.race); }));
+                Take(w, Affixed(w, Built(s, delegate (int level) { return ItemBuilder.CreateRandomMagicItem(level, (Genders)s.gender, (Races)s.race); }),
+                    IdleData.RarityHeroic));
             }
             else if (IsChampion(s))
             {
@@ -1682,8 +1736,8 @@ namespace IdleAdventurer
             try
             {
                 float c;
-                for (c = m.WP; Dice100.SuccessRoll((int)c); c *= 0.5f) Take(w, ItemBuilder.CreateRandomWeapon(level));
-                for (c = m.AM; Dice100.SuccessRoll((int)c); c *= 0.5f) Take(w, ItemBuilder.CreateRandomArmor(level, g, r));
+                for (c = m.WP; Dice100.SuccessRoll((int)c); c *= 0.5f) Take(w, Affixed(w, ItemBuilder.CreateRandomWeapon(level), -1));
+                for (c = m.AM; Dice100.SuccessRoll((int)c); c *= 0.5f) Take(w, Affixed(w, ItemBuilder.CreateRandomArmor(level, g, r), -1));
                 for (c = m.C1 * level; Dice100.SuccessRoll((int)c); c *= 0.5f) Take(w, ItemBuilder.CreateRandomIngredient(ItemGroups.CreatureIngredients1));
                 for (c = m.C2 * level; Dice100.SuccessRoll((int)c); c *= 0.5f) Take(w, ItemBuilder.CreateRandomIngredient(ItemGroups.CreatureIngredients2));
                 for (c = m.C3; Dice100.SuccessRoll((int)c); c *= 0.5f) Take(w, ItemBuilder.CreateRandomIngredient(ItemGroups.CreatureIngredients3));
@@ -1704,7 +1758,7 @@ namespace IdleAdventurer
 
         static float Worth(DaggerfallUnityItem item)
         {
-            return item.value * item.stackCount / Mathf.Max(0.05f, item.weightInKg * item.stackCount);
+            return item.value * item.stackCount * RarityOf(item) / 100f / Mathf.Max(0.05f, item.weightInKg * item.stackCount);
         }
 
         // When the pack is full the hero keeps whatever is worth most for its weight.
@@ -1725,20 +1779,211 @@ namespace IdleAdventurer
                 {
                     s.leftBehind++;
                     if (w.record)
-                        w.Emit(IdleData.EvLoot, "Too heavy to carry: " + item.LongName);
+                        w.Emit(IdleData.EvLoot, "Too heavy to carry: " + Name(item));
                     return;
                 }
                 room += w.haul[worst].weightInKg * w.haul[worst].stackCount;
                 s.leftBehind++;
                 s.runItems--;
                 if (w.record)
-                    w.Emit(IdleData.EvLoot, "Dropped " + w.haul[worst].LongName + " to make room");
+                    w.Emit(IdleData.EvLoot, "Dropped " + Name(w.haul[worst]) + " to make room");
                 w.haul.RemoveAt(worst);
             }
             w.haul.Add(item);
             s.runItems++;
             if (w.record)
-                w.Emit(IdleData.EvLoot, "Picked up " + item.LongName);
+                w.Emit(IdleData.EvLoot, "Picked up " + Name(item));
+        }
+
+        // ------------------------------------------------------------------ affixes
+
+        // Per item: { rarity, kind, value, kind, value }, kind -1 for none. Keyed by the item object itself, because
+        // the game's item IDs start again every launch.
+        static readonly Dictionary<DaggerfallUnityItem, int[]> affixes = new Dictionary<DaggerfallUnityItem, int[]>();
+
+        public static int[] AffixesOf(DaggerfallUnityItem item)
+        {
+            int[] a;
+            if (item != null && affixes.TryGetValue(item, out a))
+                return a;
+            return null;
+        }
+
+        public static int Rarity(DaggerfallUnityItem item)
+        {
+            int[] a = AffixesOf(item);
+            return (a != null) ? a[0] : IdleData.RarityCommon;
+        }
+
+        // Price multiplier in percent.
+        static int RarityOf(DaggerfallUnityItem item)
+        {
+            return IdleData.RarityPrice[Mathf.Clamp(Rarity(item), 0, IdleData.RarityPrice.Length - 1)];
+        }
+
+        public static int AffixValue(DaggerfallUnityItem item, int kind)
+        {
+            int[] a = AffixesOf(item);
+            if (a == null)
+                return 0;
+            int sum = 0;
+            for (int i = 1; i + 1 < a.Length; i += 2)
+                if (a[i] == kind)
+                    sum += a[i + 1];
+            return sum;
+        }
+
+        // "Keen Steel Longsword of the Leech".
+        public static string Name(DaggerfallUnityItem item)
+        {
+            if (item == null)
+                return "";
+            int[] a = AffixesOf(item);
+            if (a == null)
+                return item.LongName;
+            string before = "", after = "";
+            for (int i = 1; i + 1 < a.Length; i += 2)
+            {
+                if (a[i] < 0)
+                    continue;
+                if (IdleData.AffixPrefix[a[i]])
+                    before += IdleData.AffixWords[a[i]] + " ";
+                else
+                    after += " " + IdleData.AffixWords[a[i]];
+            }
+            return before + item.LongName + after;
+        }
+
+        // What the affixes do, one line each, for item cards.
+        public static List<string> AffixLines(DaggerfallUnityItem item)
+        {
+            List<string> lines = new List<string>();
+            int[] a = AffixesOf(item);
+            for (int i = 1; a != null && i + 1 < a.Length; i += 2)
+                if (a[i] >= 0)
+                    lines.Add(string.Format(IdleData.AffixText[a[i]], a[i + 1]));
+            return lines;
+        }
+
+        // Rolls affixes onto a dropped weapon or piece of armor. rarity -1 rolls it: deeper floors and champions
+        // give more; otherwise the given rarity is used.
+        static DaggerfallUnityItem Affixed(IdleWorld w, DaggerfallUnityItem item, int rarity)
+        {
+            IdleSave s = w.s;
+            int slot = SlotFor(item);
+            if (item == null || slot < 0)
+                return item;
+            if (rarity < 0)
+            {
+                int chance = Mathf.Min(40, 8 + s.floor) + (IsChampion(s) ? 20 : 0);
+                if (!Roll(s, chance))
+                    return item;
+                rarity = Roll(s, 25 + (IsChampion(s) ? 25 : 0)) ? IdleData.RarityRare : IdleData.RarityFine;
+            }
+            bool weapon = slot == IdleData.SlotWeapon;
+            int[] a = { rarity, -1, 0, -1, 0 };
+            int count = (rarity >= IdleData.RarityRare) ? 2 : 1;
+            // A Fine item gets a prefix or a suffix; Rare and Heroic get one of each.
+            bool prefixFirst = Roll(s, 50);
+            for (int n = 0; n < count; n++)
+            {
+                bool prefix = (count == 2) ? (n == 0) : prefixFirst;
+                List<int> pool = new List<int>();
+                for (int k = 0; k < IdleData.AffixKinds; k++)
+                    if (IdleData.AffixPrefix[k] == prefix && (IdleData.AffixOn[k] == 2 || (IdleData.AffixOn[k] == 1) == weapon))
+                        pool.Add(k);
+                if (pool.Count == 0)
+                    continue;
+                int kind = pool[Range(s, 0, pool.Count - 1)];
+                int value = Range(s, IdleData.AffixMin[kind], IdleData.AffixMax[kind]) * (100 + 6 * Mathf.Max(0, s.floor - 1)) / 100;
+                if (rarity == IdleData.RarityHeroic)
+                    value = value * 3 / 2;
+                a[1 + n * 2] = kind;
+                a[2 + n * 2] = Mathf.Max(1, value);
+            }
+            affixes[item] = a;
+            s.affixesFound++;
+            return item;
+        }
+
+        // Sums the affixes of everything worn and working, with caps.
+        public static void RefreshBonus(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            if (s.bonus == null || s.bonus.Length != IdleData.AffixKinds)
+                s.bonus = new int[IdleData.AffixKinds];
+            for (int k = 0; k < s.bonus.Length; k++)
+                s.bonus[k] = 0;
+            for (int i = 0; i < w.gear.Length; i++)
+            {
+                int[] a = AffixesOf(w.gear[i]);
+                if (a == null || !Works(w.gear[i]))
+                    continue;
+                for (int j = 1; j + 1 < a.Length; j += 2)
+                    if (a[j] >= 0 && !(a[j] == IdleData.AffixSturdy))       // Sturdy counts on its own body part
+                        s.bonus[a[j]] += a[j + 1];
+            }
+            for (int k = 0; k < s.bonus.Length; k++)
+                s.bonus[k] = Mathf.Min(s.bonus[k], IdleData.AffixCap[k]);
+        }
+
+        public static int HeroInterval(IdleSave s)
+        {
+            return Mathf.Max(5, IdleData.AttackInterval(s.stats[IdleData.StatSpeed]) * (100 - s.bonus[IdleData.AffixSwift]) / 100);
+        }
+
+        // Armor worth for auto-equip: armor points first, other affixes break ties and small gaps.
+        static float ArmorScore(DaggerfallUnityItem item, bool shield)
+        {
+            if (item == null)
+                return 0f;
+            float armor = (shield ? item.GetShieldArmorValue() : item.GetMaterialArmorValue()) + AffixValue(item, IdleData.AffixSturdy);
+            int[] a = AffixesOf(item);
+            int others = 0;
+            for (int i = 1; a != null && i + 1 < a.Length; i += 2)
+                if (a[i] >= 0 && a[i] != IdleData.AffixSturdy)
+                    others++;
+            return armor * 10f + others * 6f;
+        }
+
+        // "r,k,v,k,v" per item, items separated by ';' and in the same order as the item list.
+        static string PackAffixes(List<DaggerfallUnityItem> items)
+        {
+            System.Text.StringBuilder b = new System.Text.StringBuilder();
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (i > 0)
+                    b.Append(';');
+                int[] a = AffixesOf(items[i]);
+                for (int j = 0; a != null && j < a.Length; j++)
+                {
+                    if (j > 0)
+                        b.Append(',');
+                    b.Append(a[j]);
+                }
+            }
+            return b.ToString();
+        }
+
+        static void UnpackAffixes(List<DaggerfallUnityItem> items, string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return;
+            string[] parts = text.Split(';');
+            for (int i = 0; i < parts.Length && i < items.Count; i++)
+            {
+                if (parts[i].Length == 0)
+                    continue;
+                string[] fields = parts[i].Split(',');
+                if (fields.Length != 5)
+                    continue;
+                int[] a = new int[5];
+                bool ok = true;
+                for (int j = 0; j < 5; j++)
+                    ok &= int.TryParse(fields[j], out a[j]);
+                if (ok && a[0] >= 0 && a[0] <= IdleData.RarityHeroic && a[1] < IdleData.AffixKinds && a[3] < IdleData.AffixKinds)
+                    affixes[items[i]] = a;
+            }
         }
 
         public static bool IsUpgrade(IdleWorld w, DaggerfallUnityItem item, int slot)
@@ -1757,14 +2002,14 @@ namespace IdleAdventurer
                 DaggerfallUnityItem weapon = w.gear[IdleData.SlotWeapon];
                 if (weapon != null && ItemEquipTable.GetItemHands(weapon) == ItemHands.Both)
                     return false;
-                return old == null || !Works(old) || item.GetShieldArmorValue() > old.GetShieldArmorValue();
+                return old == null || !Works(old) || ArmorScore(item, true) > ArmorScore(old, true);
             }
-            return old == null || !Works(old) || item.GetMaterialArmorValue() > old.GetMaterialArmorValue();
+            return old == null || !Works(old) || ArmorScore(item, false) > ArmorScore(old, false);
         }
 
         public static int SalePrice(DaggerfallUnityItem item)
         {
-            return Mathf.Max(1, item.value * item.stackCount / IdleData.SaleDivisor);
+            return Mathf.Max(1, (int)((long)item.value * item.stackCount * RarityOf(item) / 100 / IdleData.SaleDivisor));
         }
 
         // Puts a spare weapon or piece of armor in the stash. When the stash is full the cheapest thing in it is
@@ -1813,6 +2058,7 @@ namespace IdleAdventurer
                 w.stash.Add(w.gear[other]);
                 w.gear[other] = null;
             }
+            RefreshBonus(w);
             return true;
         }
 
@@ -1822,6 +2068,7 @@ namespace IdleAdventurer
                 return false;
             w.stash.Add(w.gear[slot]);
             w.gear[slot] = null;
+            RefreshBonus(w);
             return true;
         }
 
@@ -1852,7 +2099,7 @@ namespace IdleAdventurer
                         ? ItemBuilder.CreateRandomWeapon(level)
                         : ItemBuilder.CreateRandomArmor(level, (Genders)s.gender, (Races)s.race);
                     if (item != null && SlotFor(item) >= 0)
-                        w.shop.Add(item);
+                        w.shop.Add(Roll(s, 25) ? Affixed(w, item, IdleData.RarityFine) : item);
                 }
             }
             finally
@@ -1863,7 +2110,7 @@ namespace IdleAdventurer
 
         public static int ShopPrice(DaggerfallUnityItem item)
         {
-            return Mathf.Max(5, item.value * item.stackCount);
+            return Mathf.Max(5, (int)((long)item.value * item.stackCount * RarityOf(item) / 100));
         }
 
         // Buys a shop item into the stash. Returns false when there is no gold or no room for it.
@@ -1931,7 +2178,7 @@ namespace IdleAdventurer
                     w.gear[slot] = item;
                     equipped++;
                     if (w.record)
-                        w.Emit(IdleData.EvHome, "Now using " + item.LongName);
+                        w.Emit(IdleData.EvHome, "Now using " + Name(item));
                     item = old;
                 }
                 if (item == null)
@@ -1973,6 +2220,7 @@ namespace IdleAdventurer
             }
 
             Restock(w);
+            RefreshBonus(w);
             if (w.record)
                 w.Emit(IdleData.EvHome, "Back in town: " + s.runKills + " kills, " + s.runGold + " gold found, loot sold for " + sold
                     + ", repairs " + repairs + ((bought > 0) ? ", " + bought + " potion(s) bought" : "") + ((equipped > 0) ? ", " + equipped + " upgrade(s)" : ""));
@@ -1987,10 +2235,10 @@ namespace IdleAdventurer
             string gear = "";
             for (int i = 0; i < w.gear.Length; i++)
                 if (w.gear[i] != null)
-                    gear += (gear.Length > 0 ? ", " : "") + w.gear[i].LongName;
+                    gear += (gear.Length > 0 ? ", " : "") + Name(w.gear[i]);
             return "level " + s.level + ", health " + s.maxHealth + ", gold " + s.gold + ", runs " + s.expeditions + " (cleared " + s.clears
                 + ", retreated " + s.retreats + ", died " + s.deaths + "), kills " + s.kills + ", deepest floor " + s.deepestFloor
-                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", spells " + s.spellsCast + "/" + s.enemySpellsCast + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
+                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", spells " + s.spellsCast + "/" + s.enemySpellsCast + ", affixed items " + s.affixesFound + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
                 + (long)(s.goldEarned / Mathf.Max(0.05f, s.clock / 36000f)) + " | " + gear;
         }
 

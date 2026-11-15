@@ -247,6 +247,17 @@ namespace IdleAdventurer
         }
 
         // Colour for a champion's or boss's name, and the tint of its sprite.
+        public static Color RarityColor(int rarity)
+        {
+            switch (rarity)
+            {
+                case IdleData.RarityFine: return Blue;
+                case IdleData.RarityRare: return new Color(1f, 0.86f, 0.3f, 1f);
+                case IdleData.RarityHeroic: return new Color(1f, 0.55f, 0.15f, 1f);
+            }
+            return White;
+        }
+
         public static Color TraitColor(int traits)
         {
             if ((traits & IdleData.TraitBoss) != 0) return new Color(1f, 0.55f, 0.25f, 1f);
@@ -586,7 +597,7 @@ namespace IdleAdventurer
                 string gear = "";
                 for (int i = 0; i < w.gear.Length; i++)
                     if (w.gear[i] != null)
-                        gear += (gear.Length > 0 ? ", " : "") + w.gear[i].LongName;
+                        gear += (gear.Length > 0 ? ", " : "") + IdleSim.Name(w.gear[i]);
                 y = Wrapped("Gear: " + gear + ". Stash: " + w.stash.Count + " spare.", x, y, inner, sc * 0.9f, line * 0.9f, Muted);
 
                 string doing = IdleSim.PhaseName(s);

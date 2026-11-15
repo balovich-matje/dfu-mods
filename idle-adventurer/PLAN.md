@@ -80,6 +80,21 @@ Status: M0 (spike) and M1 (simulation core, balance pass) are done. Decisions al
   - *Test:* first ten runs, 40 heroes: 0.5 deaths (0.3 and floor 6.8 knowing every spell). 200 runs: level 21,
     floor 32, 56 deaths, 2669 spells cast against 400 enemy spells.
   - *Still open in M4:* racial resistances, material warnings outside the map card.
+- **Casting hands:** the view plays the game's own casting animation (FIRE/FRST/POIS/SHOK/MJIC00C6.CIF, frames
+  0-5-0 as in `FPSSpellCasting`) for the spell's element; Heal and Shield use the magic one. X in the view plays it
+  as a test.
+- **Main menu (`src/IdleMenu.cs`):** the stock start window is replaced (window factory, plus a swap if the stock
+  one is already up) by a subclass of it: the game's night scene CHGN00I0 scaled to fill any width, and New Game,
+  Load Game, Idle Adventurer, Settings (the game's advanced settings, menu drawn dimmed behind) and Exit, with
+  arrows, Enter and N/L/I/O/E.
+- **M5, affixes and rarity:** dropped weapons and armor can roll a prefix and/or suffix (Keen, Cruel, Sturdy,
+  Nimble, Arcane; of the Leech, of Swiftness, of Toughness, of Mending, of Warding, of Sorcery). Chance
+  min(40, 8 + floor)% (+20 on champions); Fine has one affix, Rare two, Heroic two at 1.5x (boss magic items).
+  Values grow 6% a floor. Affixes live in our save beside each item list (`gearAffixes`...), keyed in memory by
+  the item object. Price x1.5/2.2/3.2; names coloured by rarity; card lists the affixes; auto-equip counts them.
+  The shop sells a Fine item now and then. Test: 200 runs reach floor 35 (32 before) in daedric gear.
+  - *Still open in M5:* soul gems and the enchanter, guild ranks, trainer, house (gold sinks: gold still piles up,
+    1.2 million after 200 runs).
 - **Blocks:** all 93 "N" blocks give a route (140 to 430 m) when tested one by one with B in the view. A rejected
   block must be destroyed at once (`DestroyImmediate`): left until the end of the frame, its colliders end up in
   the next block's navmesh and the hero walks in the void where it used to be.

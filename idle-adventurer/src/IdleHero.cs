@@ -130,17 +130,17 @@ namespace IdleAdventurer
                         note = "The stash is full. Sell something first.";
                     else if (IdleSim.Buy(w, cursor - IdleData.SlotCount))
                     {
-                        note = "Bought " + item.LongName + ". It is in the stash.";
+                        note = "Bought " + IdleSim.Name(item) + ". It is in the stash.";
                         DaggerfallUI.Instance.PlayOneShot(SoundClips.GoldPieces);
                     }
                     else
-                        note = "Not enough gold: " + item.LongName + " costs " + IdleSim.ShopPrice(item);
+                        note = "Not enough gold: " + IdleSim.Name(item) + " costs " + IdleSim.ShopPrice(item);
                 }
                 else if (inStash)
                 {
                     if (IdleSim.EquipFromStash(w, cursor - IdleData.SlotCount))
                     {
-                        note = "Now using " + item.LongName;
+                        note = "Now using " + IdleSim.Name(item);
                         DaggerfallUI.Instance.PlayOneShot(SoundClips.EquipLeather);
                     }
                 }
@@ -150,14 +150,14 @@ namespace IdleAdventurer
                 }
                 else if (IdleSim.Unequip(w, cursor))
                 {
-                    note = item.LongName + " put in the stash";
+                    note = IdleSim.Name(item) + " put in the stash";
                 }
                 IdleStore.Save();
             }
             if ((Input.GetKeyDown(KeyCode.X) || click == BtnSell) && item != null && inStash && !shopping)
             {
                 int gold = IdleSim.SellFromStash(w, cursor - IdleData.SlotCount);
-                note = "Sold " + item.LongName + " for " + gold + " gold";
+                note = "Sold " + IdleSim.Name(item) + " for " + gold + " gold";
                 DaggerfallUI.Instance.PlayOneShot(SoundClips.GoldPieces);
                 IdleStore.Save();
             }
@@ -281,10 +281,13 @@ namespace IdleAdventurer
                 float wornX = r.xMax - r.height * 2.6f - IdleUi.Width(worn, sc * 0.85f);
 
                 // Long names are cut to fit.
-                string name = item.LongName;
+                string name = IdleSim.Name(item);
                 while (name.Length > 4 && x + IdleUi.Width(name, sc) > wornX - r.height * 0.3f)
                     name = name.Substring(0, name.Length - 4) + "..";
-                IdleUi.Text(name, x, textY, sc, better ? IdleUi.Good : IdleUi.White);
+                // Name in its rarity colour; a green mark in front when it beats what is worn.
+                IdleUi.Text(name, x, textY, sc, (better && IdleSim.Rarity(item) == IdleData.RarityCommon) ? IdleUi.Good : IdleUi.RarityColor(IdleSim.Rarity(item)));
+                if (better)
+                    IdleUi.Box(new Rect(x - r.height * 0.3f, r.y + r.height * 0.2f, Mathf.Max(2f, r.height * 0.12f), r.height * 0.6f), IdleUi.Good);
                 IdleUi.Text(worn, wornX, textY, sc * 0.85f, (condition < 30) ? IdleUi.Bad : IdleUi.Muted);
                 IdleUi.Text(number, numberX, textY, sc, IdleUi.Gold);
             }
@@ -388,8 +391,20 @@ namespace IdleAdventurer
                     int slot = IdleSim.SlotFor(item);
                     bool inStash = cursor >= IdleData.SlotCount;
                     DaggerfallUnityItem other = (inStash && slot >= 0) ? w.gear[slot] : null;
-                    IdleUi.Text(item.LongName, cx, cy, sc * 1.05f, IdleUi.Gold);
+                    IdleUi.Text(IdleSim.Name(item), cx, cy, sc * 1.05f, IdleUi.Gold);
                     cy += line * 1.3f;
+                    int rarity = IdleSim.Rarity(item);
+                    if (rarity > IdleData.RarityCommon)
+                    {
+                        IdleUi.Text(IdleData.RarityNames[rarity], cx, cy, sc * 0.9f, IdleUi.RarityColor(rarity));
+                        cy += line;
+                        List<string> extra = IdleSim.AffixLines(item);
+                        for (int i = 0; i < extra.Count; i++)
+                        {
+                            IdleUi.Text(extra[i], cx + line * 0.5f, cy, sc * 0.9f, IdleUi.RarityColor(rarity));
+                            cy += line;
+                        }
+                    }
                     if (slot == IdleData.SlotWeapon)
                     {
                         string text = "Damage " + Short(item) + (other != null ? "   (worn " + Short(other) + ")" : "");
