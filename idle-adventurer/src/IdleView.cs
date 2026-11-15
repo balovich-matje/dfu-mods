@@ -757,6 +757,49 @@ namespace IdleAdventurer
         WeaponTypes weaponType = WeaponTypes.None;
         Texture2D weaponIdle;
         Texture2D[] weaponSwing;
+        float castFrom = -10f;              // when the hero last started casting
+        int castElement = -1;
+        static readonly Dictionary<int, Texture2D[]> castFrames = new Dictionary<int, Texture2D[]>();
+        static readonly string[] castFiles = { "FIRE00C6.CIF", "FRST00C6.CIF", "POIS00C6.CIF", "SHOK00C6.CIF", "MJIC00C6.CIF" };
+        static readonly int[] castOrder = { 0, 1, 2, 3, 4, 5, 0 };     // the game's order: starts and ends on frame 0
+        const float CastFrameSeconds = 0.06f;                          // the game uses 0.04
+
+        // The game's casting hands for an element (FPSSpellCasting): one frame per record of a CIF file.
+        static Texture2D[] CastFrames(int element)
+        {
+            element = Mathf.Clamp(element, 0, castFiles.Length - 1);
+            Texture2D[] frames;
+            if (castFrames.TryGetValue(element, out frames))
+                return frames;
+            frames = null;
+            try
+            {
+                string path = System.IO.Path.Combine(DaggerfallUnity.Instance.Arena2Path, castFiles[element]);
+                CifRciFile cif = new CifRciFile();
+                if (cif.Load(path, FileUsage.UseMemory, true))
+                {
+                    cif.Palette.Load(System.IO.Path.Combine(DaggerfallUnity.Instance.Arena2Path, cif.PaletteName));
+                    frames = new Texture2D[cif.RecordCount];
+                    for (int record = 0; record < cif.RecordCount; record++)
+                    {
+                        DFSize size;
+                        Color32[] colors = cif.GetColor32(record, 0, 0, 0, out size);
+                        Texture2D texture = new Texture2D(size.Width, size.Height, TextureFormat.ARGB32, false);
+                        texture.SetPixels32(colors);
+                        texture.Apply(false);
+                        texture.filterMode = FilterMode.Point;
+                        frames[record] = texture;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.Log("[Idle] Could not load casting hands " + castFiles[element] + ": " + ex.Message);
+                frames = null;
+            }
+            castFrames[element] = frames;
+            return frames;
+        }
 
         public IdleViewWindow(IUserInterfaceManager uiManager, IUserInterfaceWindow previous)
             : base(uiManager, previous)
@@ -850,6 +893,12 @@ namespace IdleAdventurer
                 CloseWindow();
                 return;
             }
+            if (Input.GetKeyDown(KeyCode.X))
+            {
+                // Test key: the casting hands of the next element, without a cast in the simulation.
+                castFrom = Time.unscaledTime;
+                castElement = (castElement + 1) % 5;
+            }
             if (Input.GetKeyDown(KeyCode.B) && scene != null)
             {
                 scene.TestBlocks();
@@ -903,6 +952,12 @@ namespace IdleAdventurer
                 IdleEvent e = w.events[i];
                 if (e.type == IdleData.EvHeroHit || e.type == IdleData.EvHeroMiss)
                     swingUntil = now + 0.45f;
+                if (e.type == IdleData.EvCast || e.type == IdleData.EvCastSelf)
+                {
+                    castFrom = now;
+                    castElement = (e.element >= 0) ? e.element : IdleData.ElementMagic;
+                    swingUntil = 0f;
+                }
                 if (e.type == IdleData.EvEnemyHit || e.type == IdleData.EvEnemyMiss || e.type == IdleData.EvEnemyCast)
                     enemyAttackUntil = now + 0.5f;
                 if (e.type == IdleData.EvEnemyHit || (e.type == IdleData.EvEnemyCast && e.value > 0))
@@ -1077,6 +1132,28 @@ namespace IdleAdventurer
                     // The weapon, drawn the way the game draws it: a flat image over the view, sized from a 320x200 screen.
                     bool swinging = now < o.swingUntil && o.weaponSwing != null && o.weaponSwing.Length > 0;
                     Texture2D weapon = o.weaponIdle;
+
+                    // Casting: the game's two hands from the bottom corners, the weapon put away meanwhile.
+                    int castStep = (int)((now - o.castFrom) / CastFrameSeconds);
+                    Texture2D[] hands = (castStep >= 0 && castStep < castOrder.Length) ? CastFrames(o.castElement) : null;
+                    if (hands != null && hands.Length > 0)
+                    {
+                        int frame = Mathf.Clamp(castOrder[castStep], 0, hands.Length - 1);
+                        Texture2D hand = hands[frame];
+                        if (hand != null)
+                        {
+                            // Laid out on a 320-wide strip in the middle, as the game lays it out on its 320x200 screen.
+                            float stripX = W * 0.5f - 160f * unit;
+                            bool small = frame == 0 || frame == 5 || (o.castElement == IdleData.ElementFire && frame == 4);
+                            float inset = small ? 320f * unit * 0.134f : 0f;
+                            float handW = hand.width * unit;
+                            float handH = hand.height * unit;
+                            GUI.DrawTextureWithTexCoords(new Rect(stripX + inset, H - handH, handW, handH), hand, new Rect(0, 0, 1, 1), true);
+                            GUI.DrawTextureWithTexCoords(new Rect(stripX + 320f * unit - inset - handW, H - handH, handW, handH), hand, new Rect(1, 0, -1, 1), true);
+                        }
+                        weapon = null;
+                        swinging = false;
+                    }
                     if (swinging)
                         weapon = o.weaponSwing[Mathf.Clamp((int)((1f - (o.swingUntil - now) / 0.45f) * o.weaponSwing.Length), 0, o.weaponSwing.Length - 1)];
                     if (weapon != null)

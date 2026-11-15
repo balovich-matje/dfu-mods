@@ -79,7 +79,7 @@ namespace IdleAdventurer
     public class IdleEntry : MonoBehaviour
     {
         static Mod mod;
-        DaggerfallStartWindow injectedInto;
+        bool registered;
 
         [Invoke(StateManager.StateTypes.Start, 0)]
         public static void Init(InitParams initParams)
@@ -91,26 +91,29 @@ namespace IdleAdventurer
             Debug.Log("[Idle] Ready.");
         }
 
-        // The main menu is an ordinary window, so the mode's button is simply added to it when it is on top.
+        // The stock main menu is swapped for ours (IdleMenu.cs) whenever it comes up. Registering with the window
+        // factory covers menus made after this mod loads; the swap covers one that was already made.
         void Update()
         {
             if (DaggerfallUI.Instance == null || DaggerfallUI.UIManager == null)
                 return;
-            DaggerfallStartWindow start = DaggerfallUI.UIManager.TopWindow as DaggerfallStartWindow;
-            if (start == null || start == injectedInto || start.NativePanel == null)
-                return;
-            injectedInto = start;
-
-            Button b = DaggerfallUI.AddTextButton(new Rect(104, 172, 112, 13), "IDLE ADVENTURER", start.NativePanel);
-            b.BackgroundColor = new Color(0.09f, 0.08f, 0.065f, 0.92f);
-            b.Outline.Color = new Color(0.72f, 0.58f, 0.18f, 1f);
-            b.Label.TextColor = DaggerfallUI.DaggerfallDefaultTextColor;
-            b.Hotkey = new HotkeySequence(KeyCode.I, HotkeySequence.KeyModifiers.None);
-            b.OnMouseClick += delegate (BaseScreenComponent sender, Vector2 position)
+            if (!registered)
             {
-                DaggerfallUI.Instance.PlayOneShot(SoundClips.ButtonClick);
-                DaggerfallUI.UIManager.PushWindow(new IdleHubWindow(DaggerfallUI.UIManager, injectedInto));
-            };
+                registered = true;
+                try
+                {
+                    UIWindowFactory.RegisterCustomUIWindow(UIWindowType.Start, typeof(IdleStartWindow));
+                }
+                catch (Exception ex)
+                {
+                    Debug.Log("[Idle] Could not register the main menu: " + ex.Message);
+                }
+            }
+            IUserInterfaceWindow top = DaggerfallUI.UIManager.TopWindow;
+            if (top == null || top.GetType() != typeof(DaggerfallStartWindow))
+                return;
+            DaggerfallUI.UIManager.PopWindow();
+            DaggerfallUI.UIManager.PushWindow(new IdleStartWindow(DaggerfallUI.UIManager));
         }
     }
 
