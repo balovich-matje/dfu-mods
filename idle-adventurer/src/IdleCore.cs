@@ -424,6 +424,11 @@ namespace IdleAdventurer
                 DaggerfallUI.UIManager.PushWindow(new IdleSpellsWindow(DaggerfallUI.UIManager, this));
                 return;
             }
+            if (Input.GetKeyDown(KeyCode.J) || click == HubCanvas.BtnJewel)
+            {
+                DaggerfallUI.UIManager.PushWindow(new IdleJewelWindow(DaggerfallUI.UIManager, this));
+                return;
+            }
             if (Input.GetKeyDown(KeyCode.B) || click == HubCanvas.BtnForge)
             {
                 DaggerfallUI.UIManager.PushWindow(new IdleForgeWindow(DaggerfallUI.UIManager, this));
@@ -485,7 +490,7 @@ namespace IdleAdventurer
 
         class HubCanvas : BaseScreenComponent
         {
-            public const int BtnGo = 1, BtnView = 2, BtnRepeat = 3, BtnDeeper = 4, BtnLess = 5, BtnMore = 6, BtnSpeed = 7, BtnTest = 8, BtnBack = 9, BtnHero = 10, BtnMap = 11, BtnSkip = 12, BtnOrders = 13, BtnSpells = 14, BtnSmith = 15, BtnForge = 16;
+            public const int BtnGo = 1, BtnView = 2, BtnRepeat = 3, BtnDeeper = 4, BtnLess = 5, BtnMore = 6, BtnSpeed = 7, BtnTest = 8, BtnBack = 9, BtnHero = 10, BtnMap = 11, BtnSkip = 12, BtnOrders = 13, BtnSpells = 14, BtnSmith = 15, BtnForge = 16, BtnJewel = 17;
             public string[] Report;
             public readonly IdleButtons Buttons = new IdleButtons();
 
@@ -657,6 +662,7 @@ namespace IdleAdventurer
                 bx += Buttons.Add(BtnSpells, "Spells (L)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnSmith, "Smith (S)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnForge, "Forge (B)", bx, bottom, tall, false) + gap;
+                bx += Buttons.Add(BtnJewel, "Jeweller (J)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnSpeed, "Speed " + IdleClock.Speed + "x (F)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnTest, "Test (T)", bx, bottom, tall, false) + gap;
                 Buttons.Add(BtnBack, "Back (Esc)", bx, bottom, tall, false);
@@ -719,6 +725,34 @@ namespace IdleAdventurer
                 {
                     lines.Add("      " + one1);
                     lines.Add("      " + one2);
+                    // Debug: replay both with events and show where they part.
+                    IdleWorld bigR = IdleSim.NewHero(4242, "Test");
+                    IdleWorld smallR = IdleSim.NewHero(4242, "Test");
+                    bigR.s.autoRepeat = 1;
+                    smallR.s.autoRepeat = 1;
+                    bigR.record = true;
+                    smallR.record = true;
+                    bigR.keepEvents = 100000;
+                    smallR.keepEvents = 100000;
+                    System.Collections.Generic.List<string> ea = new System.Collections.Generic.List<string>();
+                    System.Collections.Generic.List<string> eb = new System.Collections.Generic.List<string>();
+                    IdleSim.Advance(bigR, 36000);
+                    for (int i = 0; i < bigR.events.Count; i++) ea.Add(bigR.events[i].text);
+                    for (int i = 0; i < 36000 / 3; i++)
+                    {
+                        int before = smallR.events.Count;
+                        IdleSim.Advance(smallR, 3);
+                        for (int j = before; j < smallR.events.Count; j++) eb.Add(smallR.events[j].text);
+                    }
+                    lines.Add("      events " + ea.Count + " vs " + eb.Count + " (one-step list may be capped)");
+                    int cut = 0;
+                    for (int i = 0; i < ea.Count && i + cut < eb.Count; i++)
+                        if (ea[i] != eb[i + cut])
+                        {
+                            for (int k = Math.Max(0, i - 4); k <= i + 1 && k < ea.Count && k + cut < eb.Count; k++)
+                                lines.Add("      " + k + ": " + ea[k] + "  ||  " + eb[k + cut]);
+                            break;
+                        }
                 }
 
                 // Every dungeon type: 20 runs each with a fresh hero.

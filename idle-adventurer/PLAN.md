@@ -433,7 +433,26 @@ dungeons, into power. Every one is a ladder whose next step costs more than the 
   mithril with 934 ingots smelted, 1.07 M left; volcanic caves lean high, iron is scarce there. Gold still piles up:
   phases 3 and 4 are the gold-only sinks.
 
-### 13.11 Phase order
+### 13.11 Phase 3 as built (0.12.0)
+
+- Gems: ruby, sapphire, diamond, emerald, turquoise, jade, malachite, amber; levels 1 (chipped) to 10 (royal). Each
+  maps to an existing bonus, different in weapons and armor (ruby: damage / less damage taken; diamond: to hit /
+  armor; amber: gold found, a new bonus that never rolls as an enchantment). Values are tenths per level.
+- Found: 25% per mined vein, 3% per kill, 15% per champion, 60% per boss, level 1 + floor/12 (up to 4).
+- Sockets: weapon and cuirass 3, shield and legs 2, the rest 1. Bosses drop a socket half the time, champions 5%.
+  The jeweller adds one for 300 x n^3 x (3 + metal rung) / 3 gold.
+- Gem upgrade: 200 x 2^(level-1) gold; from level 6 another gem of that kind from the pouch. Taking a gem out
+  costs 50 x level^2; gems of sold gear go back to the pouch free.
+- Auto-jeweller (under auto-smith): set the best pouch gems in empty sockets, then the cheapest new socket (only
+  with gems waiting) or gem upgrade while it costs at most half the gold. Auto-equip compares gear without gems
+  and moves the old piece's gems back to the pouch, so gems never keep old gear worn.
+- Jeweller screen: J in the hub; gems and sockets also on the hero's item card.
+- Fixed: healing and magicka leftovers past full depended on step size and broke the offline replay check.
+- Veins now roll any unlocked ore 40% of the time, so lower metals stay available deep down.
+- Balance (200 runs): jeweller takes 1.3-1.75 M; gold left 1.16 M (stronghold, ingot-starved), 0.78 M
+  (natural caves, +18 adamantium), 0.04 M (volcanic caves).
+
+### 13.12 Phase order
 
 1. Reinforcement and reforging, with ingots bought from the smith only; rarity replaced, saves migrated.
 2. Mining, pickaxes, the materials pouch and the smelter queue.

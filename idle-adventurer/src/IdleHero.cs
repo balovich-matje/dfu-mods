@@ -412,6 +412,12 @@ namespace IdleAdventurer
                             cy += line;
                         }
                     }
+                    List<string> socketLines = IdleSim.SocketLines(item);
+                    for (int i = 0; i < socketLines.Count; i++)
+                    {
+                        IdleUi.Text(socketLines[i], cx + line * 0.5f, cy, sc * 0.9f, socketLines[i].StartsWith("Empty") ? IdleUi.Muted : IdleUi.Good);
+                        cy += line;
+                    }
                     if (slot == IdleData.SlotWeapon)
                     {
                         string text = "Damage " + Short(item) + (other != null ? "   (worn " + Short(other) + ")" : "");

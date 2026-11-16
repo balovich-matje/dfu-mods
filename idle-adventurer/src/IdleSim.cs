@@ -106,19 +106,37 @@ namespace IdleAdventurer
         // Affixes: a prefix and a suffix that dropped weapons and armor can roll. Values are at floor 1 and grow 6%
         // a floor. Kept beside the item in our own save, never inside the item.
         public const int AffixKeen = 0, AffixCruel = 1, AffixLeech = 2, AffixSwift = 3, AffixSturdy = 4, AffixTough = 5,
-            AffixMending = 6, AffixNimble = 7, AffixWarding = 8, AffixSorcery = 9, AffixArcane = 10;
-        public const int AffixKinds = 11;
+            AffixMending = 6, AffixNimble = 7, AffixWarding = 8, AffixSorcery = 9, AffixArcane = 10, AffixFortune = 11;
+        public const int AffixKinds = 12;       // Fortune only comes from amber, never as an enchantment
         public static readonly string[] AffixWords = { "Keen", "Cruel", "of the Leech", "of Swiftness", "Sturdy", "of Toughness",
-            "of Mending", "Nimble", "of Warding", "of Sorcery", "Arcane" };
-        public static readonly bool[] AffixPrefix = { true, true, false, false, true, false, false, true, false, false, true };
-        public static readonly int[] AffixOn = { 1, 1, 1, 1, 0, 0, 0, 0, 0, 2, 2 };        // 1 weapons, 0 armor, 2 either
-        public static readonly int[] AffixMin = { 3, 1, 2, 4, 1, 1, 10, 2, 2, 3, 3 };
-        public static readonly int[] AffixMax = { 8, 3, 6, 10, 3, 2, 30, 6, 6, 8, 10 };
-        public static readonly int[] AffixCap = { 60, 40, 100, 40, 99, 15, 200, 40, 40, 50, 200 };
+            "of Mending", "Nimble", "of Warding", "of Sorcery", "Arcane", "of Fortune" };
+        public static readonly bool[] AffixPrefix = { true, true, false, false, true, false, false, true, false, false, true, false };
+        public static readonly int[] AffixOn = { 1, 1, 1, 1, 0, 0, 0, 0, 0, 2, 2, -1 };    // 1 weapons, 0 armor, 2 either, -1 never rolled
+        public static readonly int[] AffixMin = { 3, 1, 2, 4, 1, 1, 10, 2, 2, 3, 3, 0 };
+        public static readonly int[] AffixMax = { 8, 3, 6, 10, 3, 2, 30, 6, 6, 8, 10, 0 };
+        public static readonly int[] AffixCap = { 60, 40, 100, 40, 99, 15, 200, 40, 40, 50, 200, 200 };
         public static readonly string[] AffixText = { "+{0} to hit", "+{0} damage", "heals {0} for every kill", "attacks {0}% faster",
             "+{0} armor", "{0} less damage from every hit", "heals {0}% faster between fights", "+{0} dodging",
-            "+{0}% to resist spells", "spells cost {0}% less", "+{0} magicka" };
+            "+{0}% to resist spells", "spells cost {0}% less", "+{0} magicka", "+{0}% gold found" };
         public const int MaxEnchants = 3;
+
+        // Gems: socketed into weapons and armor, levels 1 to 10. What a gem does depends on where it sits; values are
+        // tenths per gem level. The jeweller adds sockets and raises gem levels for gold (from level 6 a second gem of
+        // the same kind is used up too).
+        public const int GemKinds = 8, GemTop = 10, GemCodes = 16 * 8;
+        public static readonly string[] GemNames = { "Ruby", "Sapphire", "Diamond", "Emerald", "Turquoise", "Jade", "Malachite", "Amber" };
+        public static readonly string[] GemLevelNames = { "", "Chipped", "Flawed", "Rough", "Plain", "Polished", "Fine", "Flawless", "Radiant", "Perfect", "Royal" };
+        public static readonly int[] GemWeapon = { AffixCruel, AffixSorcery, AffixKeen, AffixLeech, AffixSwift, AffixWarding, AffixArcane, AffixFortune };
+        public static readonly int[] GemWeaponTenths = { 10, 20, 30, 10, 20, 30, 40, 30 };
+        public static readonly int[] GemArmor = { AffixTough, AffixArcane, AffixSturdy, AffixMending, AffixNimble, AffixWarding, AffixSorcery, AffixFortune };
+        public static readonly int[] GemArmorTenths = { 5, 40, 10, 80, 20, 30, 20, 30 };
+        public static readonly int[] GemWeaponOrder = { 0, 2, 4, 3, 7, 6, 1, 5 };      // which gem auto-socketing prefers
+        public static readonly int[] GemArmorOrder = { 2, 0, 3, 4, 5, 7, 1, 6 };
+        public static readonly int[] MaxSockets = { 1, 1, 1, 3, 1, 2, 1, 2, 3 };        // per slot, as SlotNames
+        public const int GemSecondFrom = 6;
+        public static int GemUpgradeGold(int level) { return 200 << Math.Max(0, level - 1); }
+        public static int GemRemoveGold(int level) { return 50 * level * level; }
+        public static int SocketGold(int have, int rung) { int n = have + 1; return 300 * n * n * n * (3 + rung) / 3; }
         public static readonly string[] EnchantNames = { "Plain", "Enchanted", "Twice enchanted", "Thrice enchanted" };
 
         // Reinforcement (+1 to +25): every level adds 6% of a weapon's base damage, or 1 armor every 2 levels. The
@@ -360,6 +378,9 @@ namespace IdleAdventurer
         public int smeltMetal;              // metal + 1 being smelted; 0 idle
         public int smeltLeft;               // ticks left on the current ingot
         public int veinsMined, oreMined, ingotsSmelted, ingotsSalvaged, picksBroken;
+        public int[] gems;                  // the pouch's gems: count per code (kind * 16 + level)
+        public int gemsFound, socketsAdded, gemUpgrades;
+        public long jewelGold;
         [NonSerialized] public int[] bonus = new int[IdleData.AffixKinds];     // worn affixes, summed and capped
 
         // This run and lifetime tallies.
@@ -404,6 +425,7 @@ namespace IdleAdventurer
         public List<DaggerfallUnityItem> shop = new List<DaggerfallUnityItem>();
         public List<IdleEvent> events = new List<IdleEvent>();
         public bool record;
+        public int keepEvents = 400;
         public long eventTotal;             // events ever emitted, so a viewer can tell which ones are new
         public int stopAfter;               // test runs: stop in town once this many expeditions are done
 
@@ -415,8 +437,8 @@ namespace IdleAdventurer
             e.value = value;
             events.Add(e);
             eventTotal++;
-            if (events.Count > 400)
-                events.RemoveRange(0, 200);
+            if (events.Count > keepEvents)
+                events.RemoveRange(0, keepEvents / 2);
         }
 
         public void EmitSpell(int type, string text, int value, int element)
@@ -611,6 +633,8 @@ namespace IdleAdventurer
                 s.clearedFloors = new int[IdleData.DungeonTypes];
             if (s.ingots == null || s.ingots.Length != IdleData.Metals)
                 s.ingots = new int[IdleData.Metals];
+            if (s.gems == null || s.gems.Length != IdleData.GemCodes)
+                s.gems = new int[IdleData.GemCodes];
             if (s.ore == null || s.ore.Length != IdleData.Metals)
                 s.ore = new int[IdleData.Metals];
             if (s.smeltQueue == null || s.smeltQueue.Length != IdleData.Metals)
@@ -943,6 +967,8 @@ namespace IdleAdventurer
                 int gain = s.magickaCarry / perUnit;
                 s.magickaCarry -= gain * perUnit;
                 s.magicka = Mathf.Min(most, s.magicka + gain);
+                if (s.magicka >= most)
+                    s.magickaCarry = 0;         // leftovers past full would depend on how time was cut into steps
             }
             if (s.health >= s.maxHealth)
                 return;
@@ -952,6 +978,8 @@ namespace IdleAdventurer
             int heal = s.healCarry / unit;
             s.healCarry -= heal * unit;
             s.health = Mathf.Min(s.maxHealth, s.health + heal);
+            if (s.health >= s.maxHealth)
+                s.healCarry = 0;
         }
 
         static void Explore(IdleSave s)
@@ -1724,6 +1752,8 @@ namespace IdleAdventurer
             {
                 s.championsKilled++;
             }
+            if (Roll(s, boss ? 60 : IsChampion(s) ? 15 : 3))
+                FindGem(w);
             if (IsDaedra(s.enemyId) && Roll(s, 50))
             {
                 s.hearts++;
@@ -1806,7 +1836,7 @@ namespace IdleAdventurer
             Genders g = (Genders)s.gender;
             Races r = (Races)s.race;
 
-            int gold = Range(s, m.MinGold, m.MaxGold) * level * (IsChampion(s) ? 2 : 1);
+            int gold = Range(s, m.MinGold, m.MaxGold) * level * (IsChampion(s) ? 2 : 1) * (100 + s.bonus[IdleData.AffixFortune]) / 100;
             if (gold > 0)
             {
                 s.runGold += gold;
@@ -1917,7 +1947,8 @@ namespace IdleAdventurer
             if (!Roll(s, s.dungeonType == IdleData.DungeonMine ? 90 : 70))
                 return;
             int top = TopOre(s.dungeonType, s.floor);
-            int pick = Range(s, Mathf.Max(0, top - 2), top);
+            // Mostly one of the three best ores here; sometimes any lower one, so no metal runs out deep down.
+            int pick = Roll(s, 60) ? Range(s, Mathf.Max(0, top - 2), top) : Range(s, 0, top);
             s.vein = IdleData.OreMetals[pick] + 1;
         }
 
@@ -1953,6 +1984,8 @@ namespace IdleAdventurer
             s.coal += coal;
             s.oreMined += amount;
             s.veinsMined++;
+            if (Roll(s, 25))
+                FindGem(w);
             if (w.record)
                 w.Emit(IdleData.EvMine, "Mined " + amount + " " + IdleData.OreNames[metal].ToLower() + ((coal > 0) ? " and " + coal + " coal" : ""));
             if (s.pick - 1 < IdleData.Metals - 1)
@@ -2160,9 +2193,12 @@ namespace IdleAdventurer
 
         // ------------------------------------------------------------------ affixes and reinforcement
 
-        // Per item: { level, kind, value, kind, value, kind, value }, kind -1 for none. Keyed by the item object
-        // itself, because the game's item IDs start again every launch.
-        const int DataLength = 1 + IdleData.MaxEnchants * 2;
+        // Per item: { level, kind, value, kind, value, kind, value, sockets, gem, gem, gem }, kind -1 for none, gem -1
+        // for an empty socket. Keyed by the item object itself, because the game's item IDs start again every launch.
+        const int EnchantEnd = 1 + IdleData.MaxEnchants * 2;
+        const int SocketsAt = EnchantEnd;
+        const int GemAt = SocketsAt + 1;
+        const int DataLength = GemAt + 3;
         static readonly Dictionary<DaggerfallUnityItem, int[]> affixes = new Dictionary<DaggerfallUnityItem, int[]>();
 
         public static int[] AffixesOf(DaggerfallUnityItem item)
@@ -2173,14 +2209,22 @@ namespace IdleAdventurer
             return null;
         }
 
+        static int[] NewData()
+        {
+            int[] a = new int[DataLength];
+            for (int i = 1; i < EnchantEnd; i += 2)
+                a[i] = -1;
+            for (int i = GemAt; i < DataLength; i++)
+                a[i] = -1;
+            return a;
+        }
+
         static int[] DataFor(DaggerfallUnityItem item)
         {
             int[] a = AffixesOf(item);
             if (a == null)
             {
-                a = new int[DataLength];
-                for (int i = 1; i < a.Length; i += 2)
-                    a[i] = -1;
+                a = NewData();
                 affixes[item] = a;
             }
             return a;
@@ -2196,7 +2240,7 @@ namespace IdleAdventurer
         {
             int[] a = AffixesOf(item);
             int n = 0;
-            for (int i = 1; a != null && i + 1 < a.Length; i += 2)
+            for (int i = 1; a != null && i < EnchantEnd; i += 2)
                 if (a[i] >= 0)
                     n++;
             return n;
@@ -2214,10 +2258,272 @@ namespace IdleAdventurer
             if (a == null)
                 return 0;
             int sum = 0;
-            for (int i = 1; i + 1 < a.Length; i += 2)
+            for (int i = 1; i < EnchantEnd; i += 2)
                 if (a[i] == kind)
                     sum += a[i + 1];
+            if (baseScore)
+                return sum;
+            bool weapon = item.ItemGroup == ItemGroups.Weapons;
+            for (int i = 0; i < a[SocketsAt]; i++)
+            {
+                int code = a[GemAt + i];
+                if (code < 0)
+                    continue;
+                int gem = code / 16;
+                if ((weapon ? IdleData.GemWeapon[gem] : IdleData.GemArmor[gem]) == kind)
+                    sum += GemValue(code, weapon);
+            }
             return sum;
+        }
+
+        // ------------------------------------------------------------------ gems and sockets
+
+        // While set, item scores leave gems out: gems move to a new piece, so they should not keep an old one worn.
+        static bool baseScore;
+
+        public static int GemValue(int code, bool weapon)
+        {
+            int gem = code / 16, level = code % 16;
+            return Mathf.Max(1, (weapon ? IdleData.GemWeaponTenths[gem] : IdleData.GemArmorTenths[gem]) * level / 10);
+        }
+
+        public static string GemName(int code)
+        {
+            int level = Mathf.Clamp(code % 16, 1, IdleData.GemTop);
+            return IdleData.GemLevelNames[level] + " " + IdleData.GemNames[Mathf.Clamp(code / 16, 0, IdleData.GemKinds - 1)] + " (" + level + ")";
+        }
+
+        public static string GemEffect(int code, bool weapon)
+        {
+            int gem = code / 16;
+            return string.Format(IdleData.AffixText[weapon ? IdleData.GemWeapon[gem] : IdleData.GemArmor[gem]], GemValue(code, weapon));
+        }
+
+        public static int Sockets(DaggerfallUnityItem item)
+        {
+            int[] a = AffixesOf(item);
+            return (a != null) ? a[SocketsAt] : 0;
+        }
+
+        public static int GemIn(DaggerfallUnityItem item, int socket)
+        {
+            int[] a = AffixesOf(item);
+            return (a != null && socket >= 0 && socket < a[SocketsAt]) ? a[GemAt + socket] : -1;
+        }
+
+        public static int MaxSockets(DaggerfallUnityItem item)
+        {
+            int slot = SlotFor(item);
+            return (slot < 0) ? 0 : IdleData.MaxSockets[slot];
+        }
+
+        // One line per socket, for item cards.
+        public static List<string> SocketLines(DaggerfallUnityItem item)
+        {
+            List<string> lines = new List<string>();
+            bool weapon = item != null && item.ItemGroup == ItemGroups.Weapons;
+            for (int i = 0; i < Sockets(item); i++)
+            {
+                int code = GemIn(item, i);
+                lines.Add((code < 0) ? "Empty socket" : GemName(code) + ": " + GemEffect(code, weapon));
+            }
+            return lines;
+        }
+
+        public static int GemCount(IdleSave s)
+        {
+            int n = 0;
+            for (int i = 0; i < s.gems.Length; i++)
+                n += s.gems[i];
+            return n;
+        }
+
+        // A gem from a vein or a kill, better deeper down.
+        static void FindGem(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            int code = Range(s, 0, IdleData.GemKinds - 1) * 16 + Mathf.Clamp(1 + s.floor / 12, 1, 4);
+            s.gems[code]++;
+            s.gemsFound++;
+            if (w.record)
+                w.Emit(IdleData.EvLoot, "Found a " + GemName(code).ToLower());
+        }
+
+        public static int SocketCost(DaggerfallUnityItem item)
+        {
+            return IdleData.SocketGold(Sockets(item), Mathf.Max(0, Rung(item)));
+        }
+
+        public static string CannotAddSocket(IdleSave s, DaggerfallUnityItem item)
+        {
+            if (item == null || SlotFor(item) < 0)
+                return "Only weapons and armor take sockets.";
+            if (Sockets(item) >= MaxSockets(item))
+                return "This piece takes no more than " + MaxSockets(item) + " socket(s).";
+            if (SocketCost(item) > s.gold)
+                return "Not enough gold: a socket costs " + SocketCost(item) + ".";
+            return null;
+        }
+
+        public static bool AddSocket(IdleWorld w, DaggerfallUnityItem item)
+        {
+            IdleSave s = w.s;
+            if (CannotAddSocket(s, item) != null)
+                return false;
+            int cost = SocketCost(item);
+            s.gold -= cost;
+            s.jewelGold += cost;
+            DataFor(item)[SocketsAt]++;
+            s.socketsAdded++;
+            RefreshBonus(w);
+            return true;
+        }
+
+        // The best gem in the pouch for a piece: highest level, then the slot's preferred kind. -1 when none.
+        public static int BestPouchGem(IdleSave s, DaggerfallUnityItem item)
+        {
+            int[] order = (item.ItemGroup == ItemGroups.Weapons) ? IdleData.GemWeaponOrder : IdleData.GemArmorOrder;
+            for (int level = IdleData.GemTop; level >= 1; level--)
+                for (int i = 0; i < order.Length; i++)
+                    if (s.gems[order[i] * 16 + level] > 0)
+                        return order[i] * 16 + level;
+            return -1;
+        }
+
+        // Puts a gem from the pouch into an empty socket.
+        public static bool SetGem(IdleWorld w, DaggerfallUnityItem item, int socket, int code)
+        {
+            IdleSave s = w.s;
+            if (code < 0 || s.gems[code] <= 0 || socket < 0 || socket >= Sockets(item) || GemIn(item, socket) >= 0)
+                return false;
+            s.gems[code]--;
+            DataFor(item)[GemAt + socket] = code;
+            RefreshBonus(w);
+            return true;
+        }
+
+        public static bool RemoveGem(IdleWorld w, DaggerfallUnityItem item, int socket)
+        {
+            IdleSave s = w.s;
+            int code = GemIn(item, socket);
+            if (code < 0 || IdleData.GemRemoveGold(code % 16) > s.gold)
+                return false;
+            s.gold -= IdleData.GemRemoveGold(code % 16);
+            s.jewelGold += IdleData.GemRemoveGold(code % 16);
+            s.gems[code]++;
+            DataFor(item)[GemAt + socket] = -1;
+            RefreshBonus(w);
+            return true;
+        }
+
+        // Gems of a piece that is sold go back to the pouch, free.
+        static void ReturnGems(IdleSave s, DaggerfallUnityItem item)
+        {
+            int[] a = AffixesOf(item);
+            for (int i = 0; a != null && i < a[SocketsAt]; i++)
+                if (a[GemAt + i] >= 0)
+                {
+                    s.gems[a[GemAt + i]]++;
+                    a[GemAt + i] = -1;
+                }
+        }
+
+        // The pouch gem of the same kind used up by an upgrade from level 6 on (the lowest level there is), or -1.
+        public static int SecondGem(IdleSave s, int code)
+        {
+            int gem = code / 16;
+            for (int level = 1; level <= IdleData.GemTop; level++)
+                if (s.gems[gem * 16 + level] > 0)
+                    return gem * 16 + level;
+            return -1;
+        }
+
+        public static string CannotUpgradeGem(IdleSave s, int code)
+        {
+            if (code < 0)
+                return "The socket is empty.";
+            int level = code % 16;
+            if (level >= IdleData.GemTop)
+                return "A royal gem is as good as gems get.";
+            if (level >= IdleData.GemSecondFrom && SecondGem(s, code) < 0)
+                return "From level " + IdleData.GemSecondFrom + " on, an upgrade also takes another " + IdleData.GemNames[code / 16].ToLower() + " from the pouch.";
+            if (IdleData.GemUpgradeGold(level) > s.gold)
+                return "Not enough gold: the upgrade costs " + IdleData.GemUpgradeGold(level) + ".";
+            return null;
+        }
+
+        public static bool UpgradeGem(IdleWorld w, DaggerfallUnityItem item, int socket)
+        {
+            IdleSave s = w.s;
+            int code = GemIn(item, socket);
+            if (CannotUpgradeGem(s, code) != null)
+                return false;
+            int level = code % 16;
+            if (level >= IdleData.GemSecondFrom)
+                s.gems[SecondGem(s, code)]--;
+            int cost = IdleData.GemUpgradeGold(level);
+            s.gold -= cost;
+            s.jewelGold += cost;
+            DataFor(item)[GemAt + socket] = code + 1;
+            s.gemUpgrades++;
+            RefreshBonus(w);
+            return true;
+        }
+
+        // At home: fill empty sockets of worn gear from the pouch, then keep paying for the cheapest new socket (only
+        // while there are gems to fill it) or gem upgrade while it costs at most half the gold.
+        static int AutoJewel(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            if (s.noAutoSmith)
+                return 0;
+            long before = s.jewelGold;
+            for (int guard = 0; guard < 300; guard++)
+            {
+                for (int i = 0; i < w.gear.Length; i++)
+                {
+                    DaggerfallUnityItem item = w.gear[i];
+                    if (item == null || !Works(item))
+                        continue;
+                    for (int k = 0; k < Sockets(item); k++)
+                        if (GemIn(item, k) < 0)
+                            SetGem(w, item, k, BestPouchGem(s, item));
+                }
+                DaggerfallUnityItem best = null;
+                int bestSocket = -1, bestCost = int.MaxValue;
+                bool haveGem = GemCount(s) > 0;
+                for (int i = 0; i < w.gear.Length; i++)
+                {
+                    DaggerfallUnityItem item = w.gear[i];
+                    if (item == null || !Works(item))
+                        continue;
+                    if (haveGem && Sockets(item) < MaxSockets(item) && SocketCost(item) < bestCost)
+                    {
+                        best = item;
+                        bestSocket = -1;
+                        bestCost = SocketCost(item);
+                    }
+                    for (int k = 0; k < Sockets(item); k++)
+                    {
+                        int code = GemIn(item, k);
+                        if (code < 0 || code % 16 >= IdleData.GemTop)
+                            continue;
+                        if (code % 16 >= IdleData.GemSecondFrom && SecondGem(s, code) < 0)
+                            continue;
+                        if (IdleData.GemUpgradeGold(code % 16) < bestCost)
+                        {
+                            best = item;
+                            bestSocket = k;
+                            bestCost = IdleData.GemUpgradeGold(code % 16);
+                        }
+                    }
+                }
+                if (best == null || (long)bestCost * 2 > s.gold)
+                    break;
+                if (bestSocket < 0 ? !AddSocket(w, best) : !UpgradeGem(w, best, bestSocket))
+                    break;
+            }
+            return (int)(s.jewelGold - before);
         }
 
         // Where an item stands on its ladder: weapons 0-9 (iron to daedric); armor 0 leather, 1 chain, 2-11 plate.
@@ -2490,7 +2796,7 @@ namespace IdleAdventurer
             if (a == null)
                 return item.LongName;
             string before = "", after = "";
-            for (int i = 1; i + 1 < a.Length; i += 2)
+            for (int i = 1; i < EnchantEnd; i += 2)
             {
                 if (a[i] < 0)
                     continue;
@@ -2507,7 +2813,7 @@ namespace IdleAdventurer
         {
             List<string> lines = new List<string>();
             int[] a = AffixesOf(item);
-            for (int i = 1; a != null && i + 1 < a.Length; i += 2)
+            for (int i = 1; a != null && i < EnchantEnd; i += 2)
                 if (a[i] >= 0)
                     lines.Add(string.Format(IdleData.AffixText[a[i]], a[i + 1]));
             return lines;
@@ -2543,11 +2849,13 @@ namespace IdleAdventurer
                 enchants = !Roll(s, chance) ? 0 : Roll(s, 25 + (IsChampion(s) ? 25 : 0)) ? 2 : 1;
             }
             level = Mathf.Min(level, LevelCap(item));
-            if (level == 0 && enchants == 0)
+            int sockets = (boss && Roll(s, 50)) ? 1 : (IsChampion(s) && Roll(s, 5)) ? 1 : 0;
+            if (level == 0 && enchants == 0 && sockets == 0)
                 return item;
             bool weapon = slot == IdleData.SlotWeapon;
             int[] a = DataFor(item);
             a[0] = level;
+            a[SocketsAt] = Mathf.Min(sockets, MaxSockets(item));
             // One enchantment is a prefix or a suffix; two are one of each.
             bool prefixFirst = Roll(s, 50);
             for (int n = 0; n < enchants && n < 2; n++)
@@ -2555,7 +2863,7 @@ namespace IdleAdventurer
                 bool prefix = (enchants == 2) ? (n == 0) : prefixFirst;
                 List<int> pool = new List<int>();
                 for (int k = 0; k < IdleData.AffixKinds; k++)
-                    if (IdleData.AffixPrefix[k] == prefix && (IdleData.AffixOn[k] == 2 || (IdleData.AffixOn[k] == 1) == weapon))
+                    if (IdleData.AffixOn[k] >= 0 && IdleData.AffixPrefix[k] == prefix && (IdleData.AffixOn[k] == 2 || (IdleData.AffixOn[k] == 1) == weapon))
                         pool.Add(k);
                 if (pool.Count == 0)
                     continue;
@@ -2581,12 +2889,11 @@ namespace IdleAdventurer
                 s.bonus[k] = 0;
             for (int i = 0; i < w.gear.Length; i++)
             {
-                int[] a = AffixesOf(w.gear[i]);
-                if (a == null || !Works(w.gear[i]))
+                if (AffixesOf(w.gear[i]) == null || !Works(w.gear[i]))
                     continue;
-                for (int j = 1; j + 1 < a.Length; j += 2)
-                    if (a[j] >= 0 && !(a[j] == IdleData.AffixSturdy))       // Sturdy counts on its own body part
-                        s.bonus[a[j]] += a[j + 1];
+                for (int k = 0; k < IdleData.AffixKinds; k++)
+                    if (k != IdleData.AffixSturdy)          // Sturdy counts on its own body part
+                        s.bonus[k] += AffixValue(w.gear[i], k);
             }
             for (int k = 0; k < s.bonus.Length; k++)
                 s.bonus[k] = Mathf.Min(s.bonus[k], IdleData.AffixCap[k]);
@@ -2619,9 +2926,11 @@ namespace IdleAdventurer
             float armor = ArmorValue(item, shield);
             int[] a = AffixesOf(item);
             int others = 0;
-            for (int i = 1; a != null && i + 1 < a.Length; i += 2)
+            for (int i = 1; a != null && i < EnchantEnd; i += 2)
                 if (a[i] >= 0 && a[i] != IdleData.AffixSturdy)
                     others++;
+            for (int i = 0; i < Sockets(item); i++)
+                others += (GemIn(item, i) >= 0 && !baseScore) ? 2 : 1;
             return armor * 10f + others * 6f + (Level(item) % 2) * 0.5f;
         }
 
@@ -2655,7 +2964,7 @@ namespace IdleAdventurer
                 if (parts[i].Length == 0)
                     continue;
                 string[] fields = parts[i].Split(',');
-                if (fields.Length != 5 && fields.Length != DataLength)
+                if (fields.Length != 5 && fields.Length != EnchantEnd && fields.Length != DataLength)
                     continue;
                 int[] read = new int[fields.Length];
                 bool ok = true;
@@ -2663,15 +2972,17 @@ namespace IdleAdventurer
                     ok &= int.TryParse(fields[j], out read[j]);
                 if (!ok || read[0] < 0)
                     continue;
-                int[] a = new int[DataLength];
-                for (int j = 1; j < a.Length; j += 2)
-                    a[j] = -1;
+                int[] a = NewData();
                 for (int j = 1; j < read.Length; j++)
                     a[j] = read[j];
                 a[0] = (fields.Length == 5) ? ((read[0] >= 3) ? 3 : 0) : read[0];
-                for (int j = 1; j < a.Length; j += 2)
+                for (int j = 1; j < EnchantEnd; j += 2)
                     if (a[j] >= IdleData.AffixKinds)
                         ok = false;
+                a[SocketsAt] = Mathf.Clamp(a[SocketsAt], 0, 3);
+                for (int j = GemAt; j < DataLength; j++)
+                    if (a[j] >= IdleData.GemCodes || (a[j] >= 0 && a[j] % 16 == 0))
+                        a[j] = -1;
                 if (ok)
                 {
                     a[0] = Mathf.Min(a[0], LevelCap(items[i]));
@@ -2681,6 +2992,19 @@ namespace IdleAdventurer
         }
 
         public static bool IsUpgrade(IdleWorld w, DaggerfallUnityItem item, int slot)
+        {
+            baseScore = true;
+            try
+            {
+                return BetterThanWorn(w, item, slot);
+            }
+            finally
+            {
+                baseScore = false;
+            }
+        }
+
+        static bool BetterThanWorn(IdleWorld w, DaggerfallUnityItem item, int slot)
         {
             IdleSave s = w.s;
             DaggerfallUnityItem old = w.gear[slot];
@@ -2731,6 +3055,7 @@ namespace IdleAdventurer
                         worst = i;
                 gold += SalePrice(w.stash[worst]);
                 Salvage(w, w.stash[worst]);
+                ReturnGems(w.s, w.stash[worst]);
                 w.stash.RemoveAt(worst);
             }
             return gold;
@@ -2784,6 +3109,7 @@ namespace IdleAdventurer
                 return 0;
             int gold = SalePrice(w.stash[index]);
             Salvage(w, w.stash[index]);
+            ReturnGems(w.s, w.stash[index]);
             w.stash.RemoveAt(index);
             w.s.gold += gold;
             w.s.goldEarned += gold;
@@ -2884,6 +3210,8 @@ namespace IdleAdventurer
                     DaggerfallUnityItem old = w.gear[slot];
                     w.gear[slot] = item;
                     equipped++;
+                    if (old != null)
+                        ReturnGems(s, old);         // the jeweller sets them again in the new piece
                     if (w.record)
                         w.Emit(IdleData.EvHome, "Now using " + Name(item));
                     item = old;
@@ -2896,6 +3224,7 @@ namespace IdleAdventurer
                 {
                     sold += SalePrice(item);
                     Salvage(w, item);
+                    ReturnGems(s, item);
                 }
             }
             w.haul.Clear();
@@ -2931,6 +3260,7 @@ namespace IdleAdventurer
 
             AutoForge(w);
             int smith = AutoSmith(w);
+            smith += AutoJewel(w);
 
             Restock(w);
             RefreshBonus(w);
@@ -2951,7 +3281,7 @@ namespace IdleAdventurer
                     gear += (gear.Length > 0 ? ", " : "") + Name(w.gear[i]);
             return "level " + s.level + ", health " + s.maxHealth + ", gold " + s.gold + ", runs " + s.expeditions + " (cleared " + s.clears
                 + ", retreated " + s.retreats + ", died " + s.deaths + "), kills " + s.kills + ", deepest floor " + s.deepestFloor
-                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", spells " + s.spellsCast + "/" + s.enemySpellsCast + ", enchanted items " + s.affixesFound + ", levels bought " + s.levelsBought + ", reforges " + s.reforges + ", smith gold " + s.smithGold + ", veins " + s.veinsMined + ", ore " + s.oreMined + ", smelted " + s.ingotsSmelted + ", salvaged " + s.ingotsSalvaged + ", picks broken " + s.picksBroken + ", " + PickName(s) + ", hearts " + s.hearts + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
+                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", spells " + s.spellsCast + "/" + s.enemySpellsCast + ", enchanted items " + s.affixesFound + ", levels bought " + s.levelsBought + ", reforges " + s.reforges + ", smith gold " + s.smithGold + ", veins " + s.veinsMined + ", ore " + s.oreMined + ", smelted " + s.ingotsSmelted + ", salvaged " + s.ingotsSalvaged + ", picks broken " + s.picksBroken + ", gems " + s.gemsFound + ", sockets added " + s.socketsAdded + ", gem upgrades " + s.gemUpgrades + ", jeweller gold " + s.jewelGold + ", " + PickName(s) + ", hearts " + s.hearts + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
                 + (long)(s.goldEarned / Mathf.Max(0.05f, s.clock / 36000f)) + " | " + gear;
         }
 
