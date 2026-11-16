@@ -504,3 +504,35 @@ dungeons, into power. Every one is a ladder whose next step costs more than the 
 
 Each phase ends with a balance run of the test harness: gold left over at run 200 should fall, deaths in the
 first 10 runs should not rise.
+
+### 13.16 The game's classes (0.16)
+
+The three callings became the game's own 18 classes, picked on an opaque screen (Shift+N, or a new hero's first
+visit) in the game's three groups. The group sets how the hero plays: mages cast first and start with spells,
+thieves start with the first poison, warriors fight with steel. The class file (read from the game's data) gives:
+
+- attributes; skills at 30 (primary), 22 (major), 14 (minor), 5 otherwise, with dodging, critical strike and
+  medical at least 12;
+- health per level halfway between the class's number and the old 18;
+- magicka from the class multiplier, softened to 75-200% (a mage keeps the half again it had);
+- forbidden weapons, armor kinds, shields and metals: auto-equip, the hero screen and reforging respect them,
+  which is the mage armor penalty from the open list.
+
+Heroes from before keep working as the old warrior, mage or rogue.
+
+Poison now lands 10% + critical strike / 3 + backstabbing / 2 of coated hits (at most 75%); coated hits train
+backstabbing, the trainer sells it, and anyone with backstabbing 20+ takes up poison on their own.
+
+Test harness: 18 lines, one per class (first 10 runs of 20 heroes, then 100 runs). In 0.16 the mage group dies
+about twice as often over 100 runs as the warriors and thieves and levels slower; worth a look in M6 balance.
+
+### 13.17 View fixes (0.16)
+
+- Routes: the walkable surface also covers the outside of the dungeon shell (backs of ceilings, wall tops), so
+  routes are cut to their longest stretch with a real floor under every point. The floor snap reaches only a
+  step's height, the eye ducks under low ceilings and eases away from leaning walls. Key B in the view: 92 of 93
+  blocks now give a route that never passes through anything (was 28).
+- Mining: the hero swings the game's warhammer straight down, with the clink on the hit frame, and a progress
+  bar shows the vein.
+- Hub buttons wrap into three groups (actions, shops, orders) to fit the panel.
+- Still open: in fast fights the camera sometimes faces a wall while looking for the enemy.

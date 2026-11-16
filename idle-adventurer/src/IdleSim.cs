@@ -155,9 +155,9 @@ namespace IdleAdventurer
         public const int ClassWarrior = 0, ClassMage = 1, ClassRogue = 2, Classes = 3;
         public static readonly string[] ClassNames = { "Warrior", "Mage", "Rogue" };
         public static readonly string[] ClassText = {
-            "Long blades, shield and heavy armor. Strong and hardy; the default.",
-            "A staff and light armor; half again the magicka, starts knowing Shock, Wizard's Fire and Heal, and casts first.",
-            "A short blade and leather; quick and lucky, poisons land far more often, starts knowing Nux Vomica." };
+            "fights with steel alone and opens every fight with plain attacks.",
+            "starts knowing Shock, Wizard's Fire and Heal, and the orders cast before swinging.",
+            "starts knowing the first poison (Nux Vomica) and coats the weapon before every run." };
 
         // Spell ranks I to X: each rank adds 15% to the spell's strength and takes 4% off its cost.
         public const int RankTop = 10;
@@ -171,7 +171,16 @@ namespace IdleAdventurer
         public static readonly int[] PoisonVial = { 40, 120, 350, 900, 2200, 5500 };
         public static readonly int[] PoisonDamage = { 3, 6, 10, 16, 24, 35 };
         public const int PoisonKinds = 6;
-        public const int PoisonChance = 25, RoguePoisonChance = 45;
+        // A coated hit lands its poison more often the better the hero finds the gaps: 10% plus a third of critical
+        // strike plus half of backstabbing, at most 75%.
+        public static int PoisonChance(int critical, int backstab) { return Math.Min(75, 10 + critical / 3 + backstab / 2); }
+
+        // The game's own 18 classes, in the three groups of its class screen: mages, thieves and warriors. The group
+        // decides how the hero plays (spells first, poison, or plain steel); the class file gives attributes, skills,
+        // health per level, magicka and the gear it may not use.
+        public const int Careers = 18;
+        public static int CareerCalling(int career) { return (career < 6) ? ClassMage : (career < 12) ? ClassRogue : ClassWarrior; }
+        public static readonly string[] CallingGroups = { "Warriors", "Mages", "Thieves" };
 
         // Temple blessings: one chosen kind, bought before each run, lasting that run. The price grows with level.
         public static readonly string[] BlessingNames = { "Might", "Protection", "Grace", "Fortune" };
@@ -191,8 +200,8 @@ namespace IdleAdventurer
 
         // The trainer: one skill point for gold, up to 30 + 3 per level. Trained points do not count toward levels.
         public static readonly int[] TrainSkills = { (int)DFCareer.Skills.LongBlade, (int)DFCareer.Skills.ShortBlade, (int)DFCareer.Skills.Axe,
-            (int)DFCareer.Skills.BluntWeapon, (int)DFCareer.Skills.Dodging, (int)DFCareer.Skills.CriticalStrike, (int)DFCareer.Skills.Medical,
-            (int)DFCareer.Skills.Destruction, (int)DFCareer.Skills.Restoration, (int)DFCareer.Skills.Alteration };
+            (int)DFCareer.Skills.BluntWeapon, (int)DFCareer.Skills.Dodging, (int)DFCareer.Skills.CriticalStrike, (int)DFCareer.Skills.Backstabbing,
+            (int)DFCareer.Skills.Medical, (int)DFCareer.Skills.Destruction, (int)DFCareer.Skills.Restoration, (int)DFCareer.Skills.Alteration };
         public static int TrainGold(int skill) { return (skill + 1) * (skill + 1) * 3; }
         public static int TrainCap(int level) { return Math.Min(100, 30 + 3 * level); }
 
@@ -412,6 +421,7 @@ namespace IdleAdventurer
         public int potionsToCarry = 3;
         public int heroClass;               // IdleData class; 0 warrior for heroes from before callings
         public int classChosen;             // 1 once the player picked a calling
+        public int career = -1;             // the game's class (ClassCareers 0-17); -1 for heroes from before classes
         public int[] spellRanks;            // per spell, 0 for rank I
         public int poisonsKnown;            // how many poison recipes, in order
         public bool noPoison;               // true: do not coat the weapon
@@ -572,6 +582,17 @@ namespace IdleAdventurer
 
         public static IdleWorld NewHero(int seed, string name, int heroClass)
         {
+            return NewHero(seed, name, heroClass, -1);
+        }
+
+        // A hero of one of the game's classes; its group sets the calling.
+        public static IdleWorld NewCareer(int seed, string name, int career)
+        {
+            return NewHero(seed, name, IdleData.CareerCalling(career), career);
+        }
+
+        public static IdleWorld NewHero(int seed, string name, int heroClass, int career)
+        {
             IdleWorld w = new IdleWorld();
             IdleSave s = new IdleSave();
             w.s = s;
@@ -625,6 +646,7 @@ namespace IdleAdventurer
                 s.skills[(int)DFCareer.Skills.LongBlade] = 15;
                 s.skills[(int)DFCareer.Skills.ShortBlade] = 35;
                 s.skills[(int)DFCareer.Skills.CriticalStrike] = 30;
+                s.skills[(int)DFCareer.Skills.Backstabbing] = 30;
                 s.skills[(int)DFCareer.Skills.Dodging] = 30;
                 s.poisonsKnown = 1;
                 Equip(w, ItemBuilder.CreateWeapon(Weapons.Shortsword, WeaponMaterialTypes.Iron));
@@ -647,12 +669,205 @@ namespace IdleAdventurer
                 Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Right_Pauldron, ArmorMaterialTypes.Leather));
                 Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Buckler, ArmorMaterialTypes.Leather));
             }
-            s.maxHealth = 25 + IdleData.HitPointsPerLevel;
+            DFCareer c = Career(career);
+            if (c != null)
+            {
+                s.career = career;
+                ApplyCareer(w, c);
+            }
+            s.maxHealth = 25 + HitPointsPerLevel(s);
             s.health = s.maxHealth;
             Arrays(s);
             Restock(w);
             RefreshBonus(w);
             return w;
+        }
+
+        // ------------------------------------------------------------------ the game's classes
+
+        static readonly Dictionary<int, DFCareer> careers = new Dictionary<int, DFCareer>();
+
+        // The class file from the game's data, or null (no class, or the data cannot be read).
+        public static DFCareer Career(int career)
+        {
+            if (career < 0 || career >= IdleData.Careers)
+                return null;
+            DFCareer c;
+            if (careers.TryGetValue(career, out c))
+                return c;
+            try
+            {
+                c = DaggerfallEntity.GetClassCareerTemplate((ClassCareers)career);
+            }
+            catch (Exception)
+            {
+                c = null;
+            }
+            careers[career] = c;
+            return c;
+        }
+
+        public static DFCareer Career(IdleSave s)
+        {
+            return Career(s.career);
+        }
+
+        // "Spellsword" for a hero of a class, "Warrior" for one from before classes.
+        public static string CallingName(IdleSave s)
+        {
+            DFCareer c = Career(s);
+            return (c != null) ? c.Name : IdleData.ClassNames[Mathf.Clamp(s.heroClass, 0, IdleData.Classes - 1)];
+        }
+
+        // Health gained per level: halfway between the class's own number and the default 18, so a mage (6) gets 12
+        // and a barbarian (25) 21.
+        public static int HitPointsPerLevel(IdleSave s)
+        {
+            DFCareer c = Career(s);
+            return (c != null) ? (c.HitPointsPerLevel + IdleData.HitPointsPerLevel + 1) / 2 : IdleData.HitPointsPerLevel;
+        }
+
+        // Percent of the usual magicka: the class's multiplier (0.5x to 3x intelligence in the game) softened to
+        // 75-200%, so a mage (2x) keeps the half again it had.
+        public static int MagickaPercent(IdleSave s)
+        {
+            DFCareer c = Career(s);
+            if (c == null)
+                return (s.heroClass == IdleData.ClassMage) ? 150 : 100;
+            return 50 + Mathf.RoundToInt(50f * c.SpellPointMultiplierValue);
+        }
+
+        static void SetSkill(IdleSave s, DFCareer.Skills skill, int value)
+        {
+            int i = (int)skill;
+            if (i >= 0 && i < s.skills.Length)
+                s.skills[i] = Mathf.Max(s.skills[i], value);
+        }
+
+        // Attributes and skills from the class (primary 30, major 22, minor 14, the rest 5), then a starting weapon
+        // from its best weapon skill and starting armor it is allowed to wear.
+        static void ApplyCareer(IdleWorld w, DFCareer c)
+        {
+            IdleSave s = w.s;
+            s.stats = new int[] { c.Strength, c.Intelligence, c.Willpower, c.Agility, c.Endurance, c.Personality, c.Speed, c.Luck };
+            for (int i = 0; i < s.skills.Length; i++)
+                s.skills[i] = 5;
+            SetSkill(s, c.PrimarySkill1, 30);
+            SetSkill(s, c.PrimarySkill2, 30);
+            SetSkill(s, c.PrimarySkill3, 30);
+            SetSkill(s, c.MajorSkill1, 22);
+            SetSkill(s, c.MajorSkill2, 22);
+            SetSkill(s, c.MajorSkill3, 22);
+            SetSkill(s, c.MinorSkill1, 14);
+            SetSkill(s, c.MinorSkill2, 14);
+            SetSkill(s, c.MinorSkill3, 14);
+            SetSkill(s, c.MinorSkill4, 14);
+            SetSkill(s, c.MinorSkill5, 14);
+            SetSkill(s, c.MinorSkill6, 14);
+            // Everyone has picked up a little of what every fight uses.
+            SetSkill(s, DFCareer.Skills.Dodging, 12);
+            SetSkill(s, DFCareer.Skills.CriticalStrike, 12);
+            SetSkill(s, DFCareer.Skills.Medical, 12);
+
+            // The weapon: the best of long blade, axe, blunt and short blade the class may use.
+            int[] skills = { (int)DFCareer.Skills.LongBlade, (int)DFCareer.Skills.Axe, (int)DFCareer.Skills.BluntWeapon, (int)DFCareer.Skills.ShortBlade };
+            int pick = -1;
+            for (int i = 0; i < skills.Length; i++)
+                if (!c.IsProficiencyForbidden(Proficiency(skills[i])) && (pick < 0 || s.skills[skills[i]] > s.skills[skills[pick]]))
+                    pick = i;
+            Weapons kind = Weapons.Dagger;
+            if (pick == 0) kind = Weapons.Broadsword;
+            else if (pick == 1) kind = Weapons.War_Axe;
+            else if (pick == 2) kind = (s.heroClass == IdleData.ClassMage) ? Weapons.Staff : Weapons.Mace;
+            else if (pick == 3) kind = Weapons.Shortsword;
+            w.gear[IdleData.SlotWeapon] = ItemBuilder.CreateWeapon(kind, WeaponMaterialTypes.Iron);
+            if (ItemEquipTable.GetItemHands(w.gear[IdleData.SlotWeapon]) == ItemHands.Both)
+                w.gear[IdleData.SlotShield] = null;
+
+            // Armor: what the calling starts with, in the lightest kind the class may wear.
+            Genders g = (Genders)s.gender;
+            Races r = (Races)s.race;
+            for (int slot = 0; slot < w.gear.Length; slot++)
+            {
+                DaggerfallUnityItem piece = w.gear[slot];
+                if (piece == null || slot == IdleData.SlotWeapon || Forbidden(s, piece) == null)
+                    continue;
+                w.gear[slot] = null;
+                if (slot == IdleData.SlotShield)
+                    continue;
+                ArmorMaterialTypes[] kinds = { ArmorMaterialTypes.Leather, ArmorMaterialTypes.Chain, ArmorMaterialTypes.Iron };
+                for (int k = 0; k < kinds.Length; k++)
+                {
+                    DaggerfallUnityItem other = ItemBuilder.CreateArmor(g, r, (Armor)piece.TemplateIndex, kinds[k]);
+                    if (Forbidden(s, other) == null)
+                    {
+                        w.gear[slot] = other;
+                        break;
+                    }
+                }
+            }
+        }
+
+        static DFCareer.ProficiencyFlags Proficiency(int skill)
+        {
+            switch (skill)
+            {
+                case (int)DFCareer.Skills.ShortBlade: return DFCareer.ProficiencyFlags.ShortBlades;
+                case (int)DFCareer.Skills.LongBlade: return DFCareer.ProficiencyFlags.LongBlades;
+                case (int)DFCareer.Skills.HandToHand: return DFCareer.ProficiencyFlags.HandToHand;
+                case (int)DFCareer.Skills.Axe: return DFCareer.ProficiencyFlags.Axes;
+                case (int)DFCareer.Skills.BluntWeapon: return DFCareer.ProficiencyFlags.BluntWeapons;
+                case (int)DFCareer.Skills.Archery: return DFCareer.ProficiencyFlags.MissileWeapons;
+            }
+            return (DFCareer.ProficiencyFlags)0;
+        }
+
+        static string Article(string name)
+        {
+            return ("AEIOU".IndexOf(char.ToUpper(name[0])) >= 0 ? "an " : "a ") + name.ToLower();
+        }
+
+        // Why the hero's class may not use an item, or null. The class files forbid kinds of weapons, armor (leather,
+        // chain, plate), shields and metals.
+        public static string Forbidden(IdleSave s, DaggerfallUnityItem item)
+        {
+            return item == null ? null : ForbiddenAt(s, item, Rung(item));
+        }
+
+        static string ForbiddenAt(IdleSave s, DaggerfallUnityItem item, int rung)
+        {
+            DFCareer c = Career(s);
+            if (c == null || item == null || SlotFor(item) < 0)
+                return null;
+            string who = "Not for " + Article(c.Name) + ": ";
+            bool metal = true;
+            if (item.ItemGroup == ItemGroups.Weapons)
+            {
+                int skill = item.GetWeaponSkillIDAsShort();
+                DFCareer.ProficiencyFlags p = Proficiency(skill);
+                if ((int)p != 0 && c.IsProficiencyForbidden(p))
+                    return who + ((DFCareer.Skills)skill) + " weapons.";
+            }
+            else if (SlotFor(item) == IdleData.SlotShield)
+            {
+                DFCareer.ShieldFlags f = DFCareer.ShieldFlags.Buckler;
+                if (item.TemplateIndex == (int)Armor.Round_Shield) f = DFCareer.ShieldFlags.RoundShield;
+                else if (item.TemplateIndex == (int)Armor.Kite_Shield) f = DFCareer.ShieldFlags.KiteShield;
+                else if (item.TemplateIndex == (int)Armor.Tower_Shield) f = DFCareer.ShieldFlags.TowerShield;
+                if (c.IsShieldForbidden(f))
+                    return who + item.ItemName.ToLower() + "s.";
+            }
+            else
+            {
+                DFCareer.ArmorFlags f = (rung <= 0) ? DFCareer.ArmorFlags.Leather : (rung == 1) ? DFCareer.ArmorFlags.Chain : DFCareer.ArmorFlags.Plate;
+                if (c.IsArmorForbidden(f))
+                    return who + ((rung <= 0) ? "leather" : (rung == 1) ? "chain" : "plate") + " armor.";
+                metal = rung >= 2;
+            }
+            int m = MetalAt(item, rung);
+            if (metal && m >= 0 && m < IdleData.Metals && c.IsMaterialForbidden((DFCareer.MaterialFlags)(1 << m)))
+                return who + IdleData.MetalNames[m].ToLower() + ".";
+            return null;
         }
 
         static void Equip(IdleWorld w, DaggerfallUnityItem item)
@@ -970,7 +1185,8 @@ namespace IdleAdventurer
             while ((s.skillRises + 28) / 15 > s.level)
             {
                 s.level++;
-                int gain = Range(s, IdleData.HitPointsPerLevel / 2, IdleData.HitPointsPerLevel) + s.stats[IdleData.StatEndurance] / 10 - 5;
+                int perLevel = HitPointsPerLevel(s);
+                int gain = Range(s, perLevel / 2, perLevel) + s.stats[IdleData.StatEndurance] / 10 - 5;
                 s.maxHealth += Mathf.Max(1, gain);
                 s.unspentPoints += Range(s, 4, 6);
                 if (s.autoSpend != 0)
@@ -1361,8 +1577,7 @@ namespace IdleAdventurer
         public static int MaxMagicka(IdleSave s)
         {
             int most = IdleData.MaxMagicka(s.stats[IdleData.StatIntelligence], s.level);
-            if (s.heroClass == IdleData.ClassMage)
-                most = most * 3 / 2;
+            most = most * MagickaPercent(s) / 100;
             return most + s.bonus[IdleData.AffixArcane];
         }
 
@@ -1528,6 +1743,8 @@ namespace IdleAdventurer
                 return true;
             if (skill == (int)DFCareer.Skills.Dodging || skill == (int)DFCareer.Skills.CriticalStrike || skill == (int)DFCareer.Skills.Medical)
                 return true;
+            if (skill == (int)DFCareer.Skills.Backstabbing && s.poisonsKnown > 0 && !s.noPoison)
+                return true;
             for (int k = 0; k < IdleData.SpellKinds; k++)
                 if (IdleData.SpellSchool[k] == skill && Used(s, k))
                     return true;
@@ -1600,7 +1817,7 @@ namespace IdleAdventurer
 
         public static int PoisonChance(IdleSave s)
         {
-            return (s.heroClass == IdleData.ClassRogue) ? IdleData.RoguePoisonChance : IdleData.PoisonChance;
+            return IdleData.PoisonChance(s.skills[(int)DFCareer.Skills.CriticalStrike], s.skills[(int)DFCareer.Skills.Backstabbing]);
         }
 
         public static int PoisonHit(IdleSave s, int tier)
@@ -1655,8 +1872,8 @@ namespace IdleAdventurer
             IdleSave s = w.s;
             if (s.noAutoSmith || s.noPoison || s.poisonsKnown >= IdleData.PoisonKinds)
                 return;
-            if (s.poisonsKnown == 0 && s.heroClass != IdleData.ClassRogue)
-                return;             // only rogues take up poison on their own
+            if (s.poisonsKnown == 0 && s.heroClass != IdleData.ClassRogue && s.skills[(int)DFCareer.Skills.Backstabbing] < 20)
+                return;             // only thieves, and others who know backstabbing, take up poison on their own
             int next = s.poisonsKnown;
             if ((long)IdleData.PoisonRecipe[next] * 2 <= s.gold && IdleData.PoisonVial[next] * 40 <= s.gold)
                 LearnPoison(s, next);
@@ -2039,7 +2256,10 @@ namespace IdleAdventurer
             if (damage < 1)
                 damage = 0;
             int poisoned = 0;
-            if (s.coated > 0 && weapon != null && !ShrugsPoison(s.enemyId) && Roll(s, PoisonChance(s)))
+            bool coatedHit = s.coated > 0 && weapon != null && !ShrugsPoison(s.enemyId);
+            if (coatedHit)
+                Tally(w, (int)DFCareer.Skills.Backstabbing);
+            if (coatedHit && Roll(s, PoisonChance(s)))
             {
                 poisoned = PoisonHit(s, s.coated - 1);
                 damage += poisoned;
@@ -3256,6 +3476,9 @@ namespace IdleAdventurer
                 return "Daedric is the best metal there is.";
             if (!Reforgeable(item))
                 return "Artifacts keep their own metal; they can still be reinforced.";
+            string banned = ForbiddenAt(s, item, Rung(item) + 1);
+            if (banned != null)
+                return banned;
             int nextMetal = MetalAt(item, Rung(item) + 1);
             if (IngotBill(s, nextMetal, ReforgeIngots(item)) >= IdleData.Unbuyable)
                 return NeedIngots(s, nextMetal, ReforgeIngots(item));
@@ -3583,6 +3806,8 @@ namespace IdleAdventurer
         {
             IdleSave s = w.s;
             DaggerfallUnityItem old = w.gear[slot];
+            if (Forbidden(s, item) != null)
+                return false;
             if (slot == IdleData.SlotWeapon)
             {
                 if (WeaponScore(s, item) <= WeaponScore(s, old))
@@ -3646,7 +3871,7 @@ namespace IdleAdventurer
                 return false;
             DaggerfallUnityItem item = w.stash[index];
             int slot = SlotFor(item);
-            if (slot < 0)
+            if (slot < 0 || Forbidden(w.s, item) != null)
                 return false;
             w.stash.RemoveAt(index);
             if (w.gear[slot] != null)
@@ -3870,7 +4095,7 @@ namespace IdleAdventurer
                     gear += (gear.Length > 0 ? ", " : "") + Name(w.gear[i]);
             return "level " + s.level + ", health " + s.maxHealth + ", gold " + s.gold + ", runs " + s.expeditions + " (cleared " + s.clears
                 + ", retreated " + s.retreats + ", died " + s.deaths + "), kills " + s.kills + ", deepest floor " + s.deepestFloor
-                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", spells " + s.spellsCast + "/" + s.enemySpellsCast + ", enchanted items " + s.affixesFound + ", levels bought " + s.levelsBought + ", reforges " + s.reforges + ", smith gold " + s.smithGold + ", veins " + s.veinsMined + ", ore " + s.oreMined + ", smelted " + s.ingotsSmelted + ", salvaged " + s.ingotsSalvaged + ", picks broken " + s.picksBroken + ", gems " + s.gemsFound + ", sockets added " + s.socketsAdded + ", gem upgrades " + s.gemUpgrades + ", jeweller gold " + s.jewelGold + ", souls " + s.soulsTrapped + ", enchanted " + s.enchantsAdded + ", enchanter gold " + s.enchantGold + ", " + IdleData.ClassNames[s.heroClass] + ", spell ranks gold " + s.spellRankGold + ", poisons " + s.poisonsKnown + " (" + s.poisonHits + " hits, alchemy gold " + s.alchemyGold + "), temple " + s.templeGold + ", trained " + s.pointsTrained + " for " + s.trainerGold + ", house " + s.house + " (" + s.houseGold + ")" + ", " + PickName(s) + ", hearts " + s.hearts + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
+                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", spells " + s.spellsCast + "/" + s.enemySpellsCast + ", enchanted items " + s.affixesFound + ", levels bought " + s.levelsBought + ", reforges " + s.reforges + ", smith gold " + s.smithGold + ", veins " + s.veinsMined + ", ore " + s.oreMined + ", smelted " + s.ingotsSmelted + ", salvaged " + s.ingotsSalvaged + ", picks broken " + s.picksBroken + ", gems " + s.gemsFound + ", sockets added " + s.socketsAdded + ", gem upgrades " + s.gemUpgrades + ", jeweller gold " + s.jewelGold + ", souls " + s.soulsTrapped + ", enchanted " + s.enchantsAdded + ", enchanter gold " + s.enchantGold + ", " + CallingName(s) + ", spell ranks gold " + s.spellRankGold + ", poisons " + s.poisonsKnown + " (" + s.poisonHits + " hits, alchemy gold " + s.alchemyGold + "), temple " + s.templeGold + ", trained " + s.pointsTrained + " for " + s.trainerGold + ", house " + s.house + " (" + s.houseGold + ")" + ", " + PickName(s) + ", hearts " + s.hearts + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
                 + (long)(s.goldEarned / Mathf.Max(0.05f, s.clock / 36000f)) + " | " + gear;
         }
 
@@ -3892,7 +4117,12 @@ namespace IdleAdventurer
 
         public static IdleWorld Simulate(int seed, int expeditions, bool deeper, int dungeonType, int heroClass)
         {
-            IdleWorld w = NewHero(seed, "Test", heroClass);
+            return Simulate(seed, expeditions, deeper, dungeonType, heroClass, -1);
+        }
+
+        public static IdleWorld Simulate(int seed, int expeditions, bool deeper, int dungeonType, int heroClass, int career)
+        {
+            IdleWorld w = (career >= 0) ? NewCareer(seed, "Test", career) : NewHero(seed, "Test", heroClass);
             if (dungeonType >= 0)
                 w.s.dungeonType = dungeonType;
             w.s.autoRepeat = 1;

@@ -64,6 +64,14 @@ namespace IdleAdventurer
             W.s.opened = opened;
         }
 
+        // A hero of one of the game's classes (ClassCareers 0-17).
+        public static void NewCareer(int career)
+        {
+            int opened = (W != null) ? W.s.opened : 0;
+            W = IdleSim.NewCareer((int)(DateTime.UtcNow.Ticks & 0x7fffffff), "Adventurer", career);
+            W.s.opened = opened;
+        }
+
         public static void Save()
         {
             if (W == null)
@@ -289,6 +297,42 @@ namespace IdleAdventurer
         {
             places.Clear();
             ids.Clear();
+        }
+
+        // How wide a button would be.
+        public static float Measure(string label, float height)
+        {
+            return Mathf.Round(IdleUi.Width(label, IdleUi.Scale(height * 0.62f)) + height * 0.9f);
+        }
+
+        // Lays a group of buttons out in rows no wider than the width, the last row ending at bottom, and returns
+        // the top of the group.
+        public float Flow(int[] ids, string[] labels, bool[] lit, float x, float width, float bottom, float height, float gap)
+        {
+            System.Collections.Generic.List<int> starts = new System.Collections.Generic.List<int>();
+            float used = 0f;
+            for (int i = 0; i < ids.Length; i++)
+            {
+                float w = Measure(labels[i], height);
+                if (i == 0 || used + gap + w > width)
+                {
+                    starts.Add(i);
+                    used = w;
+                }
+                else
+                {
+                    used += gap + w;
+                }
+            }
+            float top = bottom - (starts.Count - 1) * (height + gap);
+            for (int r = 0; r < starts.Count; r++)
+            {
+                int end = (r + 1 < starts.Count) ? starts[r + 1] : ids.Length;
+                float bx = x;
+                for (int i = starts[r]; i < end; i++)
+                    bx += Add(ids[i], labels[i], bx, top + r * (height + gap), height, lit[i]) + gap;
+            }
+            return top;
         }
 
         // Draws a button at x, y and returns its width.
@@ -634,7 +678,7 @@ namespace IdleAdventurer
                 Text("Idle Adventurer", x, y, sc * 1.4f, DaggerfallUI.DaggerfallDefaultTextColor);
                 y += line * 1.5f;
 
-                Text(s.heroName + ", " + IdleData.ClassNames[Mathf.Clamp(s.heroClass, 0, IdleData.Classes - 1)].ToLower() + ", level " + s.level + "    Gold " + s.gold + "    Health " + s.health + "/" + s.maxHealth + "    Magicka " + s.magicka + "/" + IdleSim.MaxMagicka(s)
+                Text(s.heroName + ", " + IdleSim.CallingName(s).ToLower() + ", level " + s.level + "    Gold " + s.gold + "    Health " + s.health + "/" + s.maxHealth + "    Magicka " + s.magicka + "/" + IdleSim.MaxMagicka(s)
                     + "    Potions " + s.potions + "/" + s.potionsToCarry, x, y, sc, White);
                 y += line;
                 Bar(new Rect(x, y, inner * 0.4f, Mathf.Round(line * 0.3f)), (float)s.health / Mathf.Max(1, s.maxHealth), Bad);
@@ -675,35 +719,25 @@ namespace IdleAdventurer
                     + "    Deepest floor " + s.deepestFloor, x, y, sc * 0.9f, Muted);
                 y += line * 1.3f;
 
-                // Two rows of buttons: what to do, and the standing orders.
+                // Three groups of buttons, each wrapped to the panel's width: what to do, the town's shops, and the
+                // standing orders.
                 float tall = Mathf.Round(line * 1.25f);
                 float bottom = r.yMax - pad - tall;
                 float gap = Mathf.Round(line * 0.3f);
-                float bx = x;
                 Buttons.Begin();
-                bx += Buttons.Add(BtnGo, (s.phase == IdleData.PhaseTown) ? "Send out (G)" : "Watch (V)", bx, bottom, tall, false) + gap;
-                if (s.phase == IdleData.PhaseTown)
-                    bx += Buttons.Add(BtnView, "View (V)", bx, bottom, tall, false) + gap;
-                bx += Buttons.Add(BtnHero, "Hero and shop (C)", bx, bottom, tall, false) + gap;
-                bx += Buttons.Add(BtnMap, "Destination (M)", bx, bottom, tall, false) + gap;
-                bx += Buttons.Add(BtnOrders, "Orders (O)", bx, bottom, tall, false) + gap;
-                bx += Buttons.Add(BtnSpells, "Spells (L)", bx, bottom, tall, false) + gap;
-                bx += Buttons.Add(BtnSmith, "Smith (S)", bx, bottom, tall, false) + gap;
-                bx += Buttons.Add(BtnForge, "Forge (B)", bx, bottom, tall, false) + gap;
-                bx += Buttons.Add(BtnJewel, "Jeweller (J)", bx, bottom, tall, false) + gap;
-                bx += Buttons.Add(BtnEnchant, "Enchanter (E)", bx, bottom, tall, false) + gap;
-                bx += Buttons.Add(BtnAlchemy, "Alchemist (A)", bx, bottom, tall, false) + gap;
-                bx += Buttons.Add(BtnTown, "Town (H)", bx, bottom, tall, false) + gap;
-                bx += Buttons.Add(BtnSpeed, "Speed " + IdleClock.Speed + "x (F)", bx, bottom, tall, false) + gap;
-                bx += Buttons.Add(BtnTest, "Test (T)", bx, bottom, tall, false) + gap;
-                Buttons.Add(BtnBack, "Back (Esc)", bx, bottom, tall, false);
-                bottom -= tall + gap;
-                bx = x;
-                bx += Buttons.Add(BtnRepeat, "Auto-repeat (R)", bx, bottom, tall, s.autoRepeat != 0) + gap;
-                bx += Buttons.Add(BtnDeeper, "Go deeper (D)", bx, bottom, tall, s.autoDeeper != 0) + gap;
-                bx += Buttons.Add(BtnSkip, "Skip cleared floors (K)", bx, bottom, tall, s.skipCleared != 0) + gap;
-                bx += Buttons.Add(BtnLess, "Floor -", bx, bottom, tall, false) + gap;
-                Buttons.Add(BtnMore, "Floor +", bx, bottom, tall, false);
+                bool home = s.phase == IdleData.PhaseTown;
+                bottom = Buttons.Flow(
+                    home ? new int[] { BtnGo, BtnView, BtnHero, BtnMap, BtnOrders, BtnSpells, BtnSpeed, BtnTest, BtnBack }
+                         : new int[] { BtnGo, BtnHero, BtnMap, BtnOrders, BtnSpells, BtnSpeed, BtnTest, BtnBack },
+                    home ? new string[] { "Send out (G)", "View (V)", "Hero and shop (C)", "Destination (M)", "Orders (O)", "Spells (L)", "Speed " + IdleClock.Speed + "x (F)", "Test (T)", "Back (Esc)" }
+                         : new string[] { "Watch (V)", "Hero and shop (C)", "Destination (M)", "Orders (O)", "Spells (L)", "Speed " + IdleClock.Speed + "x (F)", "Test (T)", "Back (Esc)" },
+                    new bool[9], x, inner, bottom, tall, gap) - tall - gap;
+                bottom = Buttons.Flow(new int[] { BtnSmith, BtnForge, BtnJewel, BtnEnchant, BtnAlchemy, BtnTown },
+                    new string[] { "Smith (S)", "Forge (B)", "Jeweller (J)", "Enchanter (E)", "Alchemist (A)", "Town (H)" },
+                    new bool[6], x, inner, bottom, tall, gap) - tall - gap;
+                bottom = Buttons.Flow(new int[] { BtnRepeat, BtnDeeper, BtnSkip, BtnLess, BtnMore },
+                    new string[] { "Auto-repeat (R)", "Go deeper (D)", "Skip cleared floors (K)", "Floor -", "Floor +" },
+                    new bool[] { s.autoRepeat != 0, s.autoDeeper != 0, s.skipCleared != 0, false, false }, x, inner, bottom, tall, gap);
                 bottom -= line * 0.4f;
 
                 if (Report != null)
@@ -886,6 +920,21 @@ namespace IdleAdventurer
                 int[] marks = { 10, 50, 200 };
                 for (int i = 0; i < marks.Length; i++)
                     lines.Add("After " + marks[i] + " runs: " + IdleSim.Summary(IdleSim.Simulate(777, marks[i], true)));
+                // The game's 18 classes: the first ten runs of 20 heroes each, and 100 runs of one hero.
+                for (int career = 0; career < IdleData.Careers; career++)
+                {
+                    int kd = 0, kf = 0;
+                    for (int seed = 1; seed <= 20; seed++)
+                    {
+                        IdleWorld ten = IdleSim.Simulate(seed * 104729, 10, true, -1, 0, career);
+                        kd += ten.s.deaths;
+                        kf += ten.s.deepestFloor;
+                    }
+                    IdleWorld hundred = IdleSim.Simulate(777, 100, true, -1, 0, career);
+                    lines.Add(IdleSim.CallingName(hundred.s) + ": first 10 runs " + (kd / 20f).ToString("0.0") + " deaths, floor " + (kf / 20f).ToString("0.0")
+                        + "; after 100 runs level " + hundred.s.level + ", deepest " + hundred.s.deepestFloor + ", died " + hundred.s.deaths + ", gold " + hundred.s.gold
+                        + ", health " + hundred.s.maxHealth + ", magicka " + IdleSim.MaxMagicka(hundred.s) + ", poison hits " + hundred.s.poisonHits);
+                }
                 lines.Add("After 200 runs as a mage: " + IdleSim.Summary(IdleSim.Simulate(777, 200, true, -1, IdleData.ClassMage)));
                 lines.Add("After 200 runs as a rogue: " + IdleSim.Summary(IdleSim.Simulate(777, 200, true, -1, IdleData.ClassRogue)));
                 lines.Add("After 200 runs in natural caves: " + IdleSim.Summary(IdleSim.Simulate(777, 200, true, IdleData.DungeonNaturalCave)));

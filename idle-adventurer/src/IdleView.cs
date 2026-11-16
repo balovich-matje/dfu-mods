@@ -58,6 +58,7 @@ namespace IdleAdventurer
         Color oldAmbient;
         Vector3[] route;
         float[] along;
+        float[] eyes;                       // eye height at each route point: lower under sloping ceilings
         bool snap = true;
 
         public bool Ready
@@ -279,7 +280,7 @@ namespace IdleAdventurer
                         NavMeshHit spot;
                         if (!NavMesh.SamplePosition(new Vector3(x, y, z), out spot, 1.5f, filter))
                             continue;
-                        if (Indoors(spot.position))
+                        if (Indoors(spot.position) && !OffFloor(spot.position))
                             spots.Add(spot.position);
                         else
                             outside++;
@@ -288,8 +289,12 @@ namespace IdleAdventurer
             if (spots.Count < 2)
                 return false;
 
+            // A few candidate walks, each cut to its longest stretch on real floor. Of those long enough, the one
+            // that passes through walls and overhangs least wins, then the longest.
             Vector3[] best = null;
             float bestLength = 0f;
+            int bestBlocked = int.MaxValue;
+            bool bestLong = false;
             for (int seedSpot = 0; seedSpot < 5; seedSpot++)
             {
                 Vector3 from = spots[(seedSpot * spots.Count) / 5];
@@ -300,21 +305,139 @@ namespace IdleAdventurer
                 Vector3[] second = Farthest(first[first.Length - 1], spots, filter);
                 Vector3[] corners = (second != null && PathLength(second) > PathLength(first)) ? second : first;
                 float sum = PathLength(corners);
-                if (sum > bestLength)
+                if (sum < MinRoute)
+                    continue;
+                Vector3[] made = OnFloor(Ground(Centre(corners, filter)));
+                if (made.Length < 2)
+                    continue;
+                float kept = PathLength(made);
+                bool isLong = kept >= MinRoute * 0.6f;
+                int blocked = Blocked(made);
+                if ((isLong && !bestLong) || (isLong == bestLong && (isLong ? (blocked < bestBlocked || (blocked == bestBlocked && kept > bestLength)) : kept > bestLength)))
                 {
-                    bestLength = sum;
-                    best = corners;
+                    bestBlocked = blocked;
+                    bestLength = kept;
+                    bestLong = isLong;
+                    best = made;
                 }
             }
-            if (best == null || bestLength < MinRoute)
+            if (best == null)
                 return false;
+            LastNote += ", " + bestBlocked + " blocked steps";
+            Blocks = bestBlocked;
 
-            route = Ground(Centre(best, filter));
+            route = best;
+            eyes = Eyes(route);
             along = new float[route.Length];
             for (int i = 1; i < route.Length; i++)
                 along[i] = along[i - 1] + Vector3.Distance(route[i - 1], route[i]);
             Length = along[route.Length - 1];
             return true;
+        }
+
+        // The longest run of a route that stays on real floor (a stray point or two, on stairs, is let through).
+        static Vector3[] OnFloor(Vector3[] r)
+        {
+            int bestFrom = 0, bestTo = -1, from = 0, misses = 0;
+            for (int i = 0; i <= r.Length; i++)
+            {
+                bool off = i == r.Length || OffFloor(r[i]);
+                if (off && i < r.Length && misses < 2)
+                {
+                    misses++;
+                    continue;
+                }
+                if (!off)
+                {
+                    if (i - from == misses)
+                        from = i;           // a run does not start on stray points
+                    misses = 0;
+                    continue;
+                }
+                int to = i - 1 - misses;
+                if (to - from > bestTo - bestFrom)
+                {
+                    bestFrom = from;
+                    bestTo = to;
+                }
+                from = i + 1;
+                misses = 0;
+            }
+            if (bestTo <= bestFrom)
+                return new Vector3[0];
+            Vector3[] cut = new Vector3[bestTo - bestFrom + 1];
+            Array.Copy(r, bestFrom, cut, 0, cut.Length);
+            return cut;
+        }
+
+        // Outside the rooms: the walkable surface is built from both sides of every collider, so it also covers the
+        // backs of ceilings between levels and the tops of walls. A point there has no floor facing up under it
+        // (physics rays pass through back faces), or the ground falls away on two sides.
+        public static bool OffFloor(Vector3 p)
+        {
+            RaycastHit under;
+            if (!Physics.Raycast(p + Vector3.up * 0.3f, Vector3.down, out under, 0.75f) || under.normal.y < 0.5f)
+                return true;
+            int drops = 0;
+            for (int k = 0; k < 4; k++)
+            {
+                float a = k * Mathf.PI / 2f;
+                Vector3 side = p + new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * 0.7f + Vector3.up * 0.3f;
+                if (!Physics.Linecast(p + Vector3.up * 0.3f, side) && !Physics.Raycast(side, Vector3.down, 1.2f))
+                    drops++;            // open to that side, with nothing to stand on: a drop, not a wall
+            }
+            return drops >= 2;
+        }
+
+        // How many steps of a route pass through something solid at knee or eye height: a wall corner it cuts, an
+        // overhang on stairs, a closed door.
+        public int Blocks;
+
+        static int Blocked(Vector3[] r)
+        {
+            float[] e = Eyes(r);
+            int count = 0;
+            for (int i = 1; i < r.Length; i++)
+                if (Physics.Linecast(r[i - 1] + Vector3.up * 0.6f, r[i] + Vector3.up * 0.6f)
+                    || Physics.Linecast(r[i - 1] + Vector3.up * e[i - 1], r[i] + Vector3.up * e[i]))
+                    count++;
+            return count;
+        }
+
+        // The eye's height at each point: a little under any ceiling lower than usual (the underside of a stair,
+        // an arch), taken as the lowest over the nearby points so the hero ducks before getting there.
+        static float[] Eyes(Vector3[] r)
+        {
+            float[] room = new float[r.Length];
+            for (int i = 0; i < r.Length; i++)
+            {
+                room[i] = EyeHeight;
+                RaycastHit up;
+                if (Physics.Raycast(r[i] + Vector3.up * 0.3f, Vector3.up, out up, EyeHeight + 0.2f))
+                    room[i] = Mathf.Clamp(up.distance + 0.3f - 0.25f, 0.9f, EyeHeight);
+            }
+            float[] e = new float[r.Length];
+            for (int i = 0; i < r.Length; i++)
+            {
+                e[i] = room[i];
+                for (int k = Mathf.Max(0, i - 3); k <= Mathf.Min(r.Length - 1, i + 3); k++)
+                    e[i] = Mathf.Min(e[i], room[k] + 0.06f * Mathf.Abs(k - i));
+            }
+            return e;
+        }
+
+        float EyeAt(float distance)
+        {
+            if (eyes == null || eyes.Length != route.Length)
+                return EyeHeight;
+            distance = Mathf.Clamp(distance, 0f, Length);
+            for (int i = 1; i < route.Length; i++)
+                if (distance <= along[i])
+                {
+                    float span = Mathf.Max(0.0001f, along[i] - along[i - 1]);
+                    return Mathf.Lerp(eyes[i - 1], eyes[i], (distance - along[i - 1]) / span);
+                }
+            return eyes[eyes.Length - 1];
         }
 
         // Dungeon blocks only have inward-facing walls, so from outside you see straight through them. A starting
@@ -437,15 +560,40 @@ namespace IdleAdventurer
                 }
                 fine.Add(points[i]);
             }
+            // Only within a step's height of the navigation surface: a longer ray can reach through a stairwell or
+            // over a ledge to the floor below, and the eye then walks under the floor it should be on.
             for (int i = 0; i < fine.Count; i++)
             {
                 RaycastHit hit;
                 Vector3 p = fine[i];
-                if (Physics.Raycast(p + Vector3.up * 0.9f, Vector3.down, out hit, 2.1f) && hit.normal.y > 0.5f)
+                if (Physics.Raycast(p + Vector3.up * 0.45f, Vector3.down, out hit, 0.9f) && hit.normal.y > 0.5f)
                 {
                     p.y = hit.point.y;
                     fine[i] = p;
                 }
+            }
+
+            // The route keeps clear of walls at the feet only; cave walls lean in and arches curve over. Ease each
+            // point away from anything within reach of the eye, if the step aside is itself clear.
+            const float reach = 0.4f;
+            for (int i = 0; i < fine.Count; i++)
+            {
+                Vector3 eyeAt = fine[i] + Vector3.up * EyeHeight;
+                Vector3 push = Vector3.zero;
+                for (int k = 0; k < 8; k++)
+                {
+                    float a = k * Mathf.PI / 4f;
+                    Vector3 dir = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a));
+                    RaycastHit wall;
+                    if (Physics.Raycast(eyeAt, dir, out wall, reach))
+                        push -= dir * (reach - wall.distance);
+                }
+                if (push.sqrMagnitude < 0.0001f)
+                    continue;
+                push = Vector3.ClampMagnitude(push, reach);
+                Vector3 moved = fine[i] + push;
+                if (!Physics.Linecast(eyeAt, moved + Vector3.up * EyeHeight) && !Physics.Linecast(fine[i] + Vector3.up * 0.6f, moved + Vector3.up * 0.6f))
+                    fine[i] = moved;
             }
             return fine.ToArray();
         }
@@ -477,8 +625,8 @@ namespace IdleAdventurer
         {
             if (!Ready)
                 return;
-            Vector3 here = PointAt(distance) + Vector3.up * EyeHeight;
-            Vector3 look = PointAt(distance + direction * 1.8f) + Vector3.up * EyeHeight - here;
+            Vector3 here = PointAt(distance) + Vector3.up * EyeAt(distance);
+            Vector3 look = PointAt(distance + direction * 1.8f) + Vector3.up * EyeAt(distance + direction * 1.8f) - here;
             Quaternion want = Quaternion.LookRotation(Level(look), Vector3.up);
             if (faceEnemy && enemy != null)
             {
@@ -777,6 +925,7 @@ namespace IdleAdventurer
         int loadIn;
         long seen;
         float swingUntil;
+        float clinkAt;                      // mining: when the swing reaches the rock
         float enemyAttackUntil;
         float hurtUntil;
         float enemyHurtUntil;
@@ -885,7 +1034,9 @@ namespace IdleAdventurer
         {
             WeaponTypes want = WeaponTypes.Melee;
             DaggerfallUnityItem item = w.gear[IdleData.SlotWeapon];
-            if (item != null && item.currentCondition > 0)
+            if (w.s.phase == IdleData.PhaseExplore && w.s.miningMetal > 0)
+                want = WeaponTypes.Warhammer;       // the pickaxe: the game's warhammer, which strikes straight down
+            else if (item != null && item.currentCondition > 0)
             {
                 int skill = item.GetWeaponSkillIDAsShort();
                 if (skill == (int)DFCareer.Skills.LongBlade) want = WeaponTypes.LongBlade;
@@ -1033,12 +1184,18 @@ namespace IdleAdventurer
             // Footsteps, at normal speed only.
             if (s.phase == IdleData.PhaseExplore && s.miningMetal > 0)
             {
-                // Mining: the hero stands and swings at the vein.
+                // Mining: the hero stands and brings the pick down on the vein; the clink comes when it lands.
                 if (now >= stepAt)
                 {
                     stepAt = now + 0.9f / Mathf.Min(4, IdleClock.Speed);
                     stepCount++;
                     swingUntil = now + 0.45f;
+                    clinkAt = now + 0.45f * 0.55f;
+                    DaggerfallUI.Instance.PlayOneShot(SoundClips.SwingLowPitch);
+                }
+                if (clinkAt > 0f && now >= clinkAt)
+                {
+                    clinkAt = 0f;
                     DaggerfallUI.Instance.PlayOneShot((SoundClips)((int)SoundClips.Parry1 + stepCount % 9));
                 }
             }
@@ -1232,6 +1389,15 @@ namespace IdleAdventurer
                         IdleUi.Bar(new Rect((W - bw) / 2f, pad + line * 1.25f, bw, Mathf.Round(line * 0.35f)), (float)s.enemyHealth / Mathf.Max(1, s.enemyMaxHealth), IdleUi.Line);
                     }
                     IdleUi.Text("Floor " + s.floor + " of " + s.targetFloor + "    " + ((s.miningMetal > 0) ? "Mining " + IdleData.OreNames[s.miningMetal - 1].ToLower() : s.roomsLeft + " fight(s) left"), pad, pad, sc, IdleUi.Gold);
+                    if (s.miningMetal > 0 && s.phase == IdleData.PhaseExplore)
+                    {
+                        // How far through the vein: a bar under the crosshair, like the travel bar.
+                        string what = "Mining " + IdleData.OreNames[s.miningMetal - 1].ToLower() + "...";
+                        float bw = Mathf.Round(W * 0.26f);
+                        IdleUi.Centred(what, W * 0.5f, H * 0.62f, sc * 1.1f, IdleUi.Gold);
+                        IdleUi.Bar(new Rect((W - bw) / 2f, H * 0.62f + line * 1.3f, bw, Mathf.Round(line * 0.35f)),
+                            1f - (float)s.phaseLeft / Mathf.Max(1, s.phaseTotal), IdleUi.Line);
+                    }
                 }
                 else
                 {

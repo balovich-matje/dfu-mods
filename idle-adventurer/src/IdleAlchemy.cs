@@ -4,8 +4,10 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using DaggerfallConnect;
 using DaggerfallWorkshop;
 using DaggerfallWorkshop.Game;
+using DaggerfallWorkshop.Game.Entity;
 using DaggerfallWorkshop.Game.UserInterface;
 using DaggerfallWorkshop.Game.UserInterfaceWindows;
 
@@ -173,7 +175,7 @@ namespace IdleAdventurer
                 cy += line * 1.5f;
                 string[] info = {
                     "On a coated weapon, " + IdleSim.PoisonChance(s) + "% of hits add " + IdleSim.PoisonHit(s, k) + " poison damage on this floor (5% more every floor down)."
-                        + (s.heroClass == IdleData.ClassRogue ? " Rogues land it far more often." : " Rogues land it far more often: " + IdleData.RoguePoisonChance + "%."),
+                        + " Critical strike and backstabbing raise the chance; coated hits train backstabbing.",
                     "A vial lasts one run and costs " + IdleData.PoisonVial[k] + " gold. The recipe costs " + IdleData.PoisonRecipe[k] + " once; recipes are learned in order (Enter).",
                     "",
                     "Skeletons, zombies, ghosts, mummies, wraiths, vampires, liches, gargoyles, atronachs and daedra shrug poison off.",
@@ -221,16 +223,26 @@ namespace IdleAdventurer
     }
 
     // Picking a calling starts a new hero. Shown for a brand-new hero, and from Shift+N in the hub.
+    // A new hero picks one of the game's 18 classes. They come in the game's own three groups; the group decides how
+    // the hero plays, the class file gives attributes, skills, health, magicka and what it may not use.
     public class IdleCallingWindow : DaggerfallPopupWindow
     {
+        const int BtnPick = 1, BtnBack = 2;
+        static readonly int[] Groups = { IdleData.ClassMage, IdleData.ClassRogue, IdleData.ClassWarrior };
+        static readonly string[] GroupNames = { "Mages", "Thieves", "Warriors" };
+
         CallingCanvas canvas;
         int choice;
         bool replaces;
+        int shownFor = -1;
+        string[] details = new string[0];
 
         public IdleCallingWindow(IUserInterfaceManager uiManager, IUserInterfaceWindow previous, bool replacesHero)
             : base(uiManager, previous)
         {
             replaces = replacesHero;
+            IdleWorld w = IdleStore.W;
+            choice = (w != null && w.s.career >= 0) ? w.s.career : 16;     // the game's Warrior
         }
 
         protected override void Setup()
@@ -242,13 +254,13 @@ namespace IdleAdventurer
             ParentPanel.Components.Add(canvas);
         }
 
-        void Pick(int heroClass)
+        void Pick(int career)
         {
-            IdleStore.NewHero(heroClass);
+            IdleStore.NewCareer(career);
             IdleStore.W.s.classChosen = 1;
             IdlePlaces.Name(IdleStore.W);
             IdleStore.W.record = true;
-            IdleStore.W.Emit(IdleData.EvInfo, "A new " + IdleData.ClassNames[heroClass].ToLower() + " arrives in town");
+            IdleStore.W.Emit(IdleData.EvInfo, "A new " + IdleSim.CallingName(IdleStore.W.s).ToLower() + " arrives in town");
             IdleStore.Save();
             DaggerfallUI.Instance.PlayOneShot(SoundClips.ButtonClick);
             CloseWindow();
@@ -260,32 +272,110 @@ namespace IdleAdventurer
             if (canvas == null)
                 return;
             canvas.Size = new Vector2(Screen.width, Screen.height);
-            if (Input.GetKeyDown(KeyCode.RightArrow))
-                choice = Mathf.Min(IdleData.Classes - 1, choice + 1);
-            if (Input.GetKeyDown(KeyCode.LeftArrow))
-                choice = Mathf.Max(0, choice - 1);
-            if (Input.GetKeyDown(KeyCode.Alpha1)) choice = 0;
-            if (Input.GetKeyDown(KeyCode.Alpha2)) choice = 1;
-            if (Input.GetKeyDown(KeyCode.Alpha3)) choice = 2;
-            int hover = canvas.CardAt(IdleUi.Mouse);
-            if (Input.GetMouseButtonDown(0) && hover >= 0)
+            int click = canvas.Buttons.Clicked();
+            if (click == BtnBack)
             {
-                Pick(hover);
+                CloseWindow();
                 return;
             }
-            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+            // Six rows in each of three columns: up and down within a group, left and right across.
+            int column = choice / 6, row = choice % 6;
+            if (Input.GetKeyDown(KeyCode.DownArrow)) row = (row + 1) % 6;
+            if (Input.GetKeyDown(KeyCode.UpArrow)) row = (row + 5) % 6;
+            if (Input.GetKeyDown(KeyCode.RightArrow)) column = (column + 1) % 3;
+            if (Input.GetKeyDown(KeyCode.LeftArrow)) column = (column + 2) % 3;
+            choice = column * 6 + row;
+            int at = canvas.RowAt(IdleUi.Mouse);
+            if (Input.GetMouseButtonDown(0) && at >= 0)
+            {
+                choice = at;
+                DaggerfallUI.Instance.PlayOneShot(SoundClips.ButtonClick);
+            }
+            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter) || click == BtnPick)
                 Pick(choice);
+        }
+
+        // What the panel says about a class: built once per class shown.
+        string[] Details(int career)
+        {
+            if (shownFor == career)
+                return details;
+            shownFor = career;
+            List<string> lines = new List<string>();
+            DFCareer c = IdleSim.Career(career);
+            if (c == null)
+            {
+                details = new string[] { "The game's class file could not be read." };
+                return details;
+            }
+            int calling = IdleData.CareerCalling(career);
+            lines.Add("Plays as " + (calling == IdleData.ClassMage ? "a mage" : calling == IdleData.ClassRogue ? "a thief" : "a warrior") + ": " + IdleData.ClassText[calling]);
+            lines.Add("Strength " + c.Strength + ", intelligence " + c.Intelligence + ", willpower " + c.Willpower + ", agility " + c.Agility
+                + ", endurance " + c.Endurance + ", personality " + c.Personality + ", speed " + c.Speed + ", luck " + c.Luck);
+            lines.Add("Primary skills (30): " + Skills(c.PrimarySkill1, c.PrimarySkill2, c.PrimarySkill3));
+            lines.Add("Major skills (22): " + Skills(c.MajorSkill1, c.MajorSkill2, c.MajorSkill3));
+            lines.Add("Minor skills (14): " + Skills(c.MinorSkill1, c.MinorSkill2, c.MinorSkill3) + ", " + Skills(c.MinorSkill4, c.MinorSkill5, c.MinorSkill6));
+
+            IdleWorld preview = IdleSim.NewCareer(1, "Preview", career);
+            lines.Add("Health " + preview.s.maxHealth + ", up to " + IdleSim.HitPointsPerLevel(preview.s) + " more a level (the game's " + c.HitPointsPerLevel
+                + ")    Magicka " + IdleSim.MaxMagicka(preview.s) + " (" + IdleSim.MagickaPercent(preview.s) + "% of usual)    Poison lands " + IdleSim.PoisonChance(preview.s) + "% of coated hits");
+
+            List<string> banned = new List<string>();
+            string[] weaponNames = { "short blades", "long blades", "hand-to-hand", "axes", "blunt weapons", "bows" };
+            for (int i = 0; i < weaponNames.Length; i++)
+                if (c.IsProficiencyForbidden((DFCareer.ProficiencyFlags)(1 << i)))
+                    banned.Add(weaponNames[i]);
+            string[] armorNames = { "leather armor", "chain armor", "plate armor" };
+            for (int i = 0; i < armorNames.Length; i++)
+                if (c.IsArmorForbidden((DFCareer.ArmorFlags)(1 << i)))
+                    banned.Add(armorNames[i]);
+            string[] shieldNames = { "bucklers", "round shields", "kite shields", "tower shields" };
+            for (int i = 0; i < shieldNames.Length; i++)
+                if (c.IsShieldForbidden((DFCareer.ShieldFlags)(1 << i)))
+                    banned.Add(shieldNames[i]);
+            for (int i = 0; i < IdleData.Metals; i++)
+                if (c.IsMaterialForbidden((DFCareer.MaterialFlags)(1 << i)))
+                    banned.Add(IdleData.MetalNames[i].ToLower());
+            lines.Add("May not use: " + (banned.Count > 0 ? string.Join(", ", banned.ToArray()) : "nothing is forbidden"));
+
+            string gear = "";
+            for (int i = 0; i < preview.gear.Length; i++)
+                if (preview.gear[i] != null)
+                    gear += (gear.Length > 0 ? ", " : "") + IdleSim.Name(preview.gear[i]);
+            lines.Add("Starts with: " + gear + ", " + preview.s.gold + " gold");
+            details = lines.ToArray();
+            return details;
+        }
+
+        static string Skills(DFCareer.Skills a, DFCareer.Skills b, DFCareer.Skills c)
+        {
+            return Spaced(a) + ", " + Spaced(b) + ", " + Spaced(c);
+        }
+
+        // "CriticalStrike" as "critical strike".
+        static string Spaced(DFCareer.Skills skill)
+        {
+            string name = skill.ToString();
+            string o = "";
+            for (int i = 0; i < name.Length; i++)
+            {
+                if (i > 0 && char.IsUpper(name[i]))
+                    o += " ";
+                o += char.ToLower(name[i]);
+            }
+            return o;
         }
 
         class CallingCanvas : BaseScreenComponent
         {
             public IdleCallingWindow Owner;
-            readonly List<Rect> cards = new List<Rect>();
+            public readonly IdleButtons Buttons = new IdleButtons();
+            readonly List<Rect> rows = new List<Rect>();
 
-            public int CardAt(Vector2 mouse)
+            public int RowAt(Vector2 mouse)
             {
-                for (int i = 0; i < cards.Count; i++)
-                    if (cards[i].Contains(mouse))
+                for (int i = 0; i < rows.Count; i++)
+                    if (rows[i].Contains(mouse))
                         return i;
                 return -1;
             }
@@ -297,29 +387,61 @@ namespace IdleAdventurer
                     return;
                 float W = Screen.width;
                 float H = Screen.height;
-                IdleUi.Box(new Rect(0, 0, W, H), new Color(0f, 0f, 0f, 0.92f));
+                IdleUi.Box(new Rect(0, 0, W, H), Color.black);
+                float width = Mathf.Round(Mathf.Min(W * 0.8f, H * 1.5f));
+                float height = Mathf.Round(H * 0.86f);
+                Rect r = new Rect(Mathf.Round((W - width) / 2f), Mathf.Round((H - height) / 2f), width, height);
+                IdleUi.Frame(r, new Color(0.06f, 0.055f, 0.05f, 1f));
                 float line = Mathf.Round(H * 0.034f);
                 float sc = IdleUi.Scale(line);
-                float cardW = Mathf.Round(Mathf.Min(W * 0.28f, H * 0.5f));
-                float cardH = Mathf.Round(H * 0.42f);
-                float gap = Mathf.Round(line);
-                float total = cardW * IdleData.Classes + gap * (IdleData.Classes - 1);
-                float x = Mathf.Round((W - total) / 2f);
-                float y = Mathf.Round((H - cardH) / 2f);
-                string title = Owner.replaces ? "A new hero: choose a calling (this replaces the current hero)" : "Choose your hero's calling";
-                IdleUi.Text(title, Mathf.Round((W - IdleUi.Width(title, sc * 1.2f)) / 2f), y - line * 2.4f, sc * 1.2f, IdleUi.Gold);
-                cards.Clear();
-                for (int i = 0; i < IdleData.Classes; i++)
+                float pad = Mathf.Round(H * 0.025f);
+                float x = r.x + pad;
+                float inner = width - 2f * pad;
+                float y = r.y + pad;
+
+                IdleUi.Text(Owner.replaces ? "A new hero: choose a class (this replaces the current hero)" : "Choose your hero's class", x, y, sc * 1.4f, IdleUi.Gold);
+                y += line * 1.8f;
+
+                // The three groups, side by side.
+                float gap = Mathf.Round(line * 0.6f);
+                float colW = Mathf.Floor((inner - 2f * gap) / 3f);
+                float rowH = Mathf.Round(line * 1.1f);
+                rows.Clear();
+                for (int g = 0; g < 3; g++)
                 {
-                    Rect c = new Rect(x + i * (cardW + gap), y, cardW, cardH);
-                    cards.Add(c);
-                    bool on = Owner.choice == i || c.Contains(IdleUi.Mouse);
-                    IdleUi.Frame(c, on ? new Color(0.72f, 0.58f, 0.18f, 0.25f) : IdleUi.Fill);
-                    IdleUi.Text((i + 1) + "  " + IdleData.ClassNames[i], c.x + line * 0.6f, c.y + line * 0.6f, sc * 1.25f, on ? IdleUi.Gold : IdleUi.White);
-                    Wrap(IdleData.ClassText[i], c.x + line * 0.6f, c.y + line * 2.4f, cardW - line * 1.2f, sc * 0.9f, line * 1.0f, IdleUi.White);
+                    float cx = x + g * (colW + gap);
+                    IdleUi.Text(GroupNames[g], cx, y, sc * 1.1f, IdleUi.Muted);
+                    for (int k = 0; k < 6; k++)
+                    {
+                        int career = g * 6 + k;
+                        Rect row = new Rect(cx, y + line * 1.3f + k * rowH, colW, rowH - 2f);
+                        rows.Add(row);
+                        bool on = Owner.choice == career;
+                        bool hover = row.Contains(IdleUi.Mouse);
+                        IdleUi.Box(row, on ? new Color(0.36f, 0.29f, 0.09f, 1f) : hover ? new Color(0.16f, 0.13f, 0.07f, 1f) : new Color(0.09f, 0.08f, 0.065f, 1f));
+                        DFCareer c = IdleSim.Career(career);
+                        string name = (c != null) ? c.Name : ((ClassCareers)career).ToString();
+                        IdleUi.Text(name, row.x + line * 0.4f, row.y + (rowH - line) / 2f + line * 0.1f, sc, on ? IdleUi.Gold : IdleUi.White);
+                    }
                 }
-                string help = "Arrows or 1-3, Enter to pick; or click a card. Esc keeps the current hero.";
-                IdleUi.Text(help, Mathf.Round((W - IdleUi.Width(help, sc * 0.8f)) / 2f), y + cardH + line * 1.2f, sc * 0.8f, IdleUi.Muted);
+                y += line * 1.3f + 6 * rowH + line * 0.8f;
+
+                // The chosen class.
+                DFCareer chosen = IdleSim.Career(Owner.choice);
+                IdleUi.Text((chosen != null) ? chosen.Name : "", x, y, sc * 1.25f, IdleUi.Gold);
+                y += line * 1.4f;
+                string[] lines = Owner.Details(Owner.choice);
+                float bottom = r.yMax - pad - line * 1.4f;
+                for (int i = 0; i < lines.Length && y < bottom - line; i++)
+                    y = Wrap(lines[i], x, y, inner, sc * 0.9f, line * 0.95f, (i == 0) ? IdleUi.White : IdleUi.Muted);
+
+                float tall = Mathf.Round(line * 1.25f);
+                float by = r.yMax - pad - tall;
+                Buttons.Begin();
+                float bx = x;
+                bx += Buttons.Add(BtnPick, "Start as " + ((chosen != null) ? chosen.Name : "this class") + " (Enter)", bx, by, tall, false) + gap;
+                bx += Buttons.Add(BtnBack, Owner.replaces ? "Keep the current hero (Esc)" : "Back (Esc)", bx, by, tall, false) + gap;
+                IdleUi.Text("Arrows to choose; click a class to see it.", bx + gap, by + (tall - line) / 2f + line * 0.1f, sc * 0.85f, IdleUi.Muted);
             }
 
             static float Wrap(string s, float x, float y, float width, float scale, float lineHeight, Color c)

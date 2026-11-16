@@ -138,7 +138,10 @@ namespace IdleAdventurer
                 }
                 else if (inStash)
                 {
-                    if (IdleSim.EquipFromStash(w, cursor - IdleData.SlotCount))
+                    string banned = IdleSim.Forbidden(s, item);
+                    if (banned != null)
+                        note = banned;
+                    else if (IdleSim.EquipFromStash(w, cursor - IdleData.SlotCount))
                     {
                         note = "Now using " + IdleSim.Name(item);
                         DaggerfallUI.Instance.PlayOneShot(SoundClips.EquipLeather);
