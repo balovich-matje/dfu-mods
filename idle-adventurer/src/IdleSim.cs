@@ -137,6 +137,18 @@ namespace IdleAdventurer
         public static int GemUpgradeGold(int level) { return 200 << Math.Max(0, level - 1); }
         public static int GemRemoveGold(int level) { return 50 * level * level; }
         public static int SocketGold(int have, int rung) { int n = have + 1; return 300 * n * n * n * (3 + rung) / 3; }
+
+        // Soul gems: bought empty at the Mages Guild, filled by trapping the soul of a slain creature (not people). The
+        // soul's strength comes from the creature's level. The enchanter spends a filled gem and gold to add an
+        // enchantment to a piece with a free slot, or to roll one of its enchantments anew.
+        public const int SoulTiers = 5;
+        public static readonly string[] SoulNames = { "Petty", "Lesser", "Common", "Greater", "Grand" };
+        public static readonly int[] SoulPower = { 70, 90, 110, 135, 165 };        // percent of an enchantment's usual value
+        public const int SoulGemPrice = 150;
+        public const int SoulTrapChance = 30;
+        public static int SoulTier(int enemyLevel) { return Math.Min(SoulTiers - 1, Math.Max(0, enemyLevel / 5)); }
+        public static int EnchantGold(int existing, int tier) { return 250 * (tier + 1) * (tier + 1) * (existing + 1) * (existing + 1); }
+        public static int RerollGold(int tier) { return 150 * (tier + 1) * (tier + 1); }
         public static readonly string[] EnchantNames = { "Plain", "Enchanted", "Twice enchanted", "Thrice enchanted" };
 
         // Reinforcement (+1 to +25): every level adds 6% of a weapon's base damage, or 1 armor every 2 levels. The
@@ -346,6 +358,11 @@ namespace IdleAdventurer
         public int[] ruleDo;
         public int potions = 2;
         public int potionsToCarry = 3;
+        public int soulGemsToCarry = 2;     // empty soul gems bought before each run
+        public int soulGemsEmpty;
+        public int[] souls;                 // filled soul gems per IdleData soul tier
+        public int soulsTrapped, enchantsAdded, rerolls;
+        public long enchantGold;
         public int potionsDrunk;
         public int championsKilled;
         public int bossesKilled;
@@ -633,6 +650,8 @@ namespace IdleAdventurer
                 s.clearedFloors = new int[IdleData.DungeonTypes];
             if (s.ingots == null || s.ingots.Length != IdleData.Metals)
                 s.ingots = new int[IdleData.Metals];
+            if (s.souls == null || s.souls.Length != IdleData.SoulTiers)
+                s.souls = new int[IdleData.SoulTiers];
             if (s.gems == null || s.gems.Length != IdleData.GemCodes)
                 s.gems = new int[IdleData.GemCodes];
             if (s.ore == null || s.ore.Length != IdleData.Metals)
@@ -1754,6 +1773,15 @@ namespace IdleAdventurer
             }
             if (Roll(s, boss ? 60 : IsChampion(s) ? 15 : 3))
                 FindGem(w);
+            if (s.soulGemsEmpty > 0 && !e.isClass && Roll(s, IdleData.SoulTrapChance))
+            {
+                int tier = IdleData.SoulTier(EnemyLevel(s, e));
+                s.soulGemsEmpty--;
+                s.souls[tier]++;
+                s.soulsTrapped++;
+                if (w.record)
+                    w.Emit(IdleData.EvLoot, "Trapped a " + IdleData.SoulNames[tier].ToLower() + " soul");
+            }
             if (IsDaedra(s.enemyId) && Roll(s, 50))
             {
                 s.hearts++;
@@ -2274,6 +2302,157 @@ namespace IdleAdventurer
                     sum += GemValue(code, weapon);
             }
             return sum;
+        }
+
+        // ------------------------------------------------------------------ the enchanter
+
+        public static int BestSoul(IdleSave s)
+        {
+            for (int tier = IdleData.SoulTiers - 1; tier >= 0; tier--)
+                if (s.souls[tier] > 0)
+                    return tier;
+            return -1;
+        }
+
+        public static int SoulCount(IdleSave s)
+        {
+            int n = 0;
+            for (int i = 0; i < s.souls.Length; i++)
+                n += s.souls[i];
+            return n;
+        }
+
+        // A new enchantment for a piece: a kind it does not have yet, valued by the deepest floor reached and the soul.
+        static void RollEnchant(IdleSave s, DaggerfallUnityItem item, int at, int tier)
+        {
+            int[] a = DataFor(item);
+            bool weapon = item.ItemGroup == ItemGroups.Weapons;
+            List<int> pool = new List<int>();
+            for (int k = 0; k < IdleData.AffixKinds; k++)
+            {
+                if (IdleData.AffixOn[k] < 0 || !(IdleData.AffixOn[k] == 2 || (IdleData.AffixOn[k] == 1) == weapon))
+                    continue;
+                bool has = false;
+                for (int i = 1; i < EnchantEnd; i += 2)
+                    if (i != at && a[i] == k)
+                        has = true;
+                if (!has)
+                    pool.Add(k);
+            }
+            if (pool.Count == 0)
+                return;
+            int kind = pool[Range(s, 0, pool.Count - 1)];
+            int value = Range(s, IdleData.AffixMin[kind], IdleData.AffixMax[kind]) * (100 + 6 * Mathf.Max(0, s.deepestFloor - 1)) / 100;
+            value = value * IdleData.SoulPower[tier] / 100;
+            a[at] = kind;
+            a[at + 1] = Mathf.Max(1, value);
+        }
+
+        public static string CannotEnchant(IdleSave s, DaggerfallUnityItem item)
+        {
+            if (item == null || SlotFor(item) < 0)
+                return "Only weapons and armor take enchantments here.";
+            if (Enchants(item) >= IdleData.MaxEnchants)
+                return "Three enchantments is the most a piece holds; roll one anew instead.";
+            int tier = BestSoul(s);
+            if (tier < 0)
+                return "No filled soul gem. Carry empty ones (+ and - here) and the hero traps creatures' souls.";
+            if (IdleData.EnchantGold(Enchants(item), tier) > s.gold)
+                return "Not enough gold: it costs " + IdleData.EnchantGold(Enchants(item), tier) + ".";
+            return null;
+        }
+
+        public static bool Enchant(IdleWorld w, DaggerfallUnityItem item)
+        {
+            IdleSave s = w.s;
+            if (CannotEnchant(s, item) != null)
+                return false;
+            int tier = BestSoul(s);
+            int cost = IdleData.EnchantGold(Enchants(item), tier);
+            int[] a = DataFor(item);
+            int at = -1;
+            for (int i = 1; i < EnchantEnd && at < 0; i += 2)
+                if (a[i] < 0)
+                    at = i;
+            if (at < 0)
+                return false;
+            s.gold -= cost;
+            s.enchantGold += cost;
+            s.souls[tier]--;
+            RollEnchant(s, item, at, tier);
+            s.enchantsAdded++;
+            RefreshBonus(w);
+            return true;
+        }
+
+        // The enchantment in a slot (0 to 2), or -1 when the slot is empty.
+        public static int EnchantKind(DaggerfallUnityItem item, int slot)
+        {
+            int[] a = AffixesOf(item);
+            return (a != null && slot >= 0 && slot < IdleData.MaxEnchants) ? a[1 + slot * 2] : -1;
+        }
+
+        public static int EnchantValue(DaggerfallUnityItem item, int slot)
+        {
+            int[] a = AffixesOf(item);
+            return (a != null && slot >= 0 && slot < IdleData.MaxEnchants) ? a[2 + slot * 2] : 0;
+        }
+
+        public static string CannotReroll(IdleSave s, DaggerfallUnityItem item, int slot)
+        {
+            if (EnchantKind(item, slot) < 0)
+                return "That slot is empty.";
+            int tier = BestSoul(s);
+            if (tier < 0)
+                return "No filled soul gem.";
+            if (IdleData.RerollGold(tier) > s.gold)
+                return "Not enough gold: it costs " + IdleData.RerollGold(tier) + ".";
+            return null;
+        }
+
+        public static bool Reroll(IdleWorld w, DaggerfallUnityItem item, int slot)
+        {
+            IdleSave s = w.s;
+            if (CannotReroll(s, item, slot) != null)
+                return false;
+            int tier = BestSoul(s);
+            s.gold -= IdleData.RerollGold(tier);
+            s.enchantGold += IdleData.RerollGold(tier);
+            s.souls[tier]--;
+            RollEnchant(s, item, 1 + slot * 2, tier);
+            s.rerolls++;
+            RefreshBonus(w);
+            return true;
+        }
+
+        // At home: the cheapest enchantment for a worn piece with a free slot, again and again while there are souls
+        // and it costs at most half the gold. Rolling anew is left to the player.
+        static int AutoEnchant(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            if (s.noAutoSmith)
+                return 0;
+            long before = s.enchantGold;
+            for (int guard = 0; guard < 50 && BestSoul(s) >= 0; guard++)
+            {
+                DaggerfallUnityItem best = null;
+                int bestCost = int.MaxValue;
+                for (int i = 0; i < w.gear.Length; i++)
+                {
+                    DaggerfallUnityItem item = w.gear[i];
+                    if (item == null || !Works(item) || Enchants(item) >= IdleData.MaxEnchants)
+                        continue;
+                    int cost = IdleData.EnchantGold(Enchants(item), BestSoul(s));
+                    if (cost < bestCost)
+                    {
+                        best = item;
+                        bestCost = cost;
+                    }
+                }
+                if (best == null || (long)bestCost * 2 > s.gold || !Enchant(w, best))
+                    break;
+            }
+            return (int)(s.enchantGold - before);
         }
 
         // ------------------------------------------------------------------ gems and sockets
@@ -3243,6 +3422,13 @@ namespace IdleAdventurer
                 bought++;
             }
 
+            while (s.soulGemsEmpty < s.soulGemsToCarry && s.gold >= IdleData.SoulGemPrice * 3)
+            {
+                s.gold -= IdleData.SoulGemPrice;
+                s.enchantGold += IdleData.SoulGemPrice;
+                s.soulGemsEmpty++;
+            }
+
             // Repairs, cheapest first come first served: a quarter of the item's value for a full repair.
             int repairs = 0;
             for (int i = 0; i < w.gear.Length; i++)
@@ -3261,6 +3447,7 @@ namespace IdleAdventurer
             AutoForge(w);
             int smith = AutoSmith(w);
             smith += AutoJewel(w);
+            smith += AutoEnchant(w);
 
             Restock(w);
             RefreshBonus(w);
@@ -3281,7 +3468,7 @@ namespace IdleAdventurer
                     gear += (gear.Length > 0 ? ", " : "") + Name(w.gear[i]);
             return "level " + s.level + ", health " + s.maxHealth + ", gold " + s.gold + ", runs " + s.expeditions + " (cleared " + s.clears
                 + ", retreated " + s.retreats + ", died " + s.deaths + "), kills " + s.kills + ", deepest floor " + s.deepestFloor
-                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", spells " + s.spellsCast + "/" + s.enemySpellsCast + ", enchanted items " + s.affixesFound + ", levels bought " + s.levelsBought + ", reforges " + s.reforges + ", smith gold " + s.smithGold + ", veins " + s.veinsMined + ", ore " + s.oreMined + ", smelted " + s.ingotsSmelted + ", salvaged " + s.ingotsSalvaged + ", picks broken " + s.picksBroken + ", gems " + s.gemsFound + ", sockets added " + s.socketsAdded + ", gem upgrades " + s.gemUpgrades + ", jeweller gold " + s.jewelGold + ", " + PickName(s) + ", hearts " + s.hearts + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
+                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", spells " + s.spellsCast + "/" + s.enemySpellsCast + ", enchanted items " + s.affixesFound + ", levels bought " + s.levelsBought + ", reforges " + s.reforges + ", smith gold " + s.smithGold + ", veins " + s.veinsMined + ", ore " + s.oreMined + ", smelted " + s.ingotsSmelted + ", salvaged " + s.ingotsSalvaged + ", picks broken " + s.picksBroken + ", gems " + s.gemsFound + ", sockets added " + s.socketsAdded + ", gem upgrades " + s.gemUpgrades + ", jeweller gold " + s.jewelGold + ", souls " + s.soulsTrapped + ", enchanted " + s.enchantsAdded + ", enchanter gold " + s.enchantGold + ", " + PickName(s) + ", hearts " + s.hearts + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
                 + (long)(s.goldEarned / Mathf.Max(0.05f, s.clock / 36000f)) + " | " + gear;
         }
 

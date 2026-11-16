@@ -23,13 +23,13 @@ SOURCE_GROUPS = [
     ["IdleCore.cs", "IdleMenu.cs"],
     ["IdleSim.cs"],
     ["IdleView.cs"],
-    ["IdleHero.cs", "IdleMap.cs", "IdleOrders.cs", "IdleSpells.cs", "IdleSmith.cs", "IdleForge.cs", "IdleJewel.cs"],
+    ["IdleHero.cs", "IdleMap.cs", "IdleOrders.cs", "IdleSpells.cs", "IdleSmith.cs", "IdleForge.cs", "IdleJewel.cs", "IdleEnchant.cs"],
 ]
 SOURCES = [g[0] for g in SOURCE_GROUPS]
 
 MANIFEST = {
     "ModTitle": MOD_TITLE,
-    "ModVersion": "0.12.0",
+    "ModVersion": "0.13.0",
     "ModAuthor": "balovich-matje",
     "DFUnity_Version": "1.0.0",
     "ModDescription": "An idle side game mode: your hero explores and fights alone, you manage gear and supplies.",

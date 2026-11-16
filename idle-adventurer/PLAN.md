@@ -452,7 +452,18 @@ dungeons, into power. Every one is a ladder whose next step costs more than the 
 - Balance (200 runs): jeweller takes 1.3-1.75 M; gold left 1.16 M (stronghold, ingot-starved), 0.78 M
   (natural caves, +18 adamantium), 0.04 M (volcanic caves).
 
-### 13.12 Phase order
+### 13.12 Phase 4 as built (0.13.0)
+
+- Soul gems: 150 gold each, the hero carries 2 empty ones a run by default (+/- on the Enchanter screen). A creature
+  kill (not people) fills one 30% of the time; the soul tier is the creature's level / 5 (petty to grand).
+- Enchanter (E in the hub): Enchant adds a new kind the piece lacks to a free slot (up to three), valued like a drop
+  at the deepest floor reached, times the soul (70% petty to 165% grand), for 250 x (tier+1)^2 x (count+1)^2 gold.
+  Roll anew replaces one enchantment for 150 x (tier+1)^2 gold and a soul.
+- Auto-enchant (under auto-smith) fills free slots with the best soul while it costs at most half the gold;
+  rolling anew stays manual.
+- Balance (200 runs): enchanter 0.4-1.2 M; gold left 1.1 M stronghold, 129 k natural caves, 76 k volcanic.
+
+### 13.13 Phase order
 
 1. Reinforcement and reforging, with ingots bought from the smith only; rarity replaced, saves migrated.
 2. Mining, pickaxes, the materials pouch and the smelter queue.
