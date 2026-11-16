@@ -175,7 +175,7 @@ namespace IdleAdventurer
                 y += line * 1.3f;
 
                 rows.Clear();
-                float rowTall = Mathf.Round(line * 1.3f);
+                float rowTall = Mathf.Round(line * 1.15f);
                 for (int i = 0; i < IdleData.SlotCount; i++)
                 {
                     int gearSlot = IdleSmithWindow.SlotOfRow(i);

@@ -13,7 +13,7 @@ namespace IdleAdventurer
 {
     public class IdleJewelWindow : DaggerfallPopupWindow
     {
-        const int BtnSocket = 1, BtnSet = 2, BtnUpgrade = 3, BtnRemove = 4, BtnBack = 5;
+        const int BtnSocket = 1, BtnSet = 2, BtnUpgrade = 3, BtnRemove = 4, BtnBack = 5, BtnBuy = 6;
 
         JewelCanvas canvas;
         int row;
@@ -134,6 +134,19 @@ namespace IdleAdventurer
                 else
                     Done("The " + IdleSim.GemName(code).ToLower() + " is back in the pouch.");
             }
+            int slotHere = IdleSmithWindow.SlotOfRow(row);
+            if ((Input.GetKeyDown(KeyCode.P) || click == BtnBuy) && slotHere >= IdleData.SlotAmulet)
+            {
+                string why = IdleSim.CannotBuyTrinket(w, slotHere);
+                if (why != null)
+                    note = why;
+                else
+                {
+                    bool worn = w.gear[slotHere] == null;
+                    IdleSim.BuyTrinket(w, slotHere);
+                    Done(worn ? "Bought a plain " + IdleData.SlotNames[slotHere].ToLower() + "; the hero wears it." : "Bought a plain " + IdleData.SlotNames[slotHere].ToLower() + "; it is in the stash.");
+                }
+            }
             if (click == BtnBack)
             {
                 CloseWindow();
@@ -199,7 +212,7 @@ namespace IdleAdventurer
                 y += line * 1.4f;
 
                 rows.Clear();
-                float rowTall = Mathf.Round(line * 1.3f);
+                float rowTall = Mathf.Round(line * 1.15f);
                 for (int i = 0; i < IdleData.SlotCount; i++)
                 {
                     int slot = IdleSmithWindow.SlotOfRow(i);
@@ -268,11 +281,22 @@ namespace IdleAdventurer
                 float cy = card.y + line * 0.4f;
                 if (sel == null)
                 {
+                    int slotSel = IdleSmithWindow.SlotOfRow(Mathf.Clamp(Owner.row, 0, IdleData.SlotCount - 1));
                     IdleUi.Text("Nothing worn here.", cx, cy, sc, IdleUi.Muted);
+                    if (slotSel >= IdleData.SlotAmulet)
+                    {
+                        cy += line * 1.4f;
+                        string what = IdleData.SlotNames[slotSel].ToLower();
+                        cy = Wrap("Amulets, rings and robes give no armor and are not reinforced, but take sockets and any enchantment but armor, so gems and souls pay off without plate. Every class may wear them.",
+                            cx, cy, cw, sc * 0.85f, line * 0.9f, IdleUi.Muted);
+                        cy += line * 0.4f;
+                        Wrap("Buy a plain " + what + " (P): " + IdleData.TrinketPrice[slotSel - IdleData.SlotAmulet] + " gold. Champions and bosses sometimes drop enchanted ones.",
+                            cx, cy, cw, sc * 0.85f, line * 0.9f, (IdleSim.CannotBuyTrinket(w, slotSel) == null) ? IdleUi.White : IdleUi.Bad);
+                    }
                 }
                 else
                 {
-                    bool weapon = sel.ItemGroup == ItemGroups.Weapons;
+                    bool weapon = IdleSim.GemsAsWeapon(sel);
                     cy = Wrap(IdleSim.Name(sel), cx, cy, cw, sc * 1.1f, line * 1.2f, IdleUi.Gold);
                     cy += line * 0.4f;
                     int count = IdleSim.Sockets(sel);
@@ -319,7 +343,7 @@ namespace IdleAdventurer
                     cy += line * 0.5f;
 
                     // What each gem does in this piece.
-                    IdleUi.Text(weapon ? "Gems in a weapon, per level:" : "Gems in armor, per level:", cx, cy, sc * 0.8f, IdleUi.Muted);
+                    IdleUi.Text(weapon ? ((sel.ItemGroup == ItemGroups.Weapons) ? "Gems in a weapon, per level:" : "Gems in an amulet, ring or robe, per level:") : "Gems in armor, per level:", cx, cy, sc * 0.8f, IdleUi.Muted);
                     cy += line * 0.9f;
                     for (int g = 0; g < IdleData.GemKinds; g++)
                     {
@@ -336,6 +360,8 @@ namespace IdleAdventurer
                 bx2 += Buttons.Add(BtnSet, "Set gem (G)", bx2, bottom, tall, false) + gap;
                 bx2 += Buttons.Add(BtnUpgrade, "Upgrade (U)", bx2, bottom, tall, false) + gap;
                 bx2 += Buttons.Add(BtnRemove, "Take out (X)", bx2, bottom, tall, false) + gap;
+                if (IdleSmithWindow.SlotOfRow(Mathf.Clamp(Owner.row, 0, IdleData.SlotCount - 1)) >= IdleData.SlotAmulet)
+                    bx2 += Buttons.Add(BtnBuy, "Buy plain (P)", bx2, bottom, tall, false) + gap;
                 Buttons.Add(BtnBack, "Back (Esc)", bx2, bottom, tall, false);
             }
 

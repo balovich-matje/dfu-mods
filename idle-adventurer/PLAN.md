@@ -536,3 +536,18 @@ about twice as often over 100 runs as the warriors and thieves and levels slower
   bar shows the vein.
 - Hub buttons wrap into three groups (actions, shops, orders) to fit the panel.
 - Still open: in fast fights the camera sometimes faces a wall while looking for the enemy.
+
+### 13.18 Amulets, rings and robes (0.17)
+
+- Three new worn slots: amulet (also torcs), ring (also marks) and robe (plain or priest's robes). Any class may wear
+  them. They give no armor and are not reinforced or reforged; they take sockets (amulet 2, ring 1, robe 2) and up to
+  three enchantments of any kind but Sturdy. Gems in them work as in a weapon (all of those help the whole hero:
+  sapphire spell cost, malachite magicka, ruby damage and so on).
+- Found: a champion drops an enchanted one 6% of the time, a boss 35%; robes from the game's clothing loot and
+  jewellery among its magic items can also be worn. Plain ones without enchantments are sold on the way home.
+- The jeweller sells plain ones (amulet 600, ring 300, robe 150; P on an empty trinket row). Auto-jeweller buys one
+  for an empty slot when it costs at most half the gold; auto-jeweller and auto-enchant then fill it.
+- Smith lists only weapons and armor. View turns between fights are quicker (0.16.1).
+- Balance (100 runs): mage group 25-37 deaths (was 33-38), level 11-12; thieves and warriors about as before.
+  Determinism checks pass.
+- Still open from phase 5: staffs as their own line, lockpicks and chests.

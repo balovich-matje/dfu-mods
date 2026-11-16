@@ -42,7 +42,8 @@ namespace IdleAdventurer
         // Gear rows, weapon first.
         public static int SlotOfRow(int r)
         {
-            return (r == 0) ? IdleData.SlotWeapon : r - 1;
+            // Row 0 is the weapon, then the body parts and shield, then the trinkets.
+            return (r == 0) ? IdleData.SlotWeapon : (r <= IdleData.SlotWeapon) ? r - 1 : r;
         }
 
         void Reinforce(IdleWorld w)
@@ -94,7 +95,7 @@ namespace IdleAdventurer
                     row = cell;
             }
             if (Input.GetKeyDown(KeyCode.DownArrow))
-                row = Mathf.Min(IdleData.SlotCount - 1, row + 1);
+                row = Mathf.Min(IdleData.ArmsSlots - 1, row + 1);
             if (Input.GetKeyDown(KeyCode.UpArrow))
                 row = Mathf.Max(0, row - 1);
             if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter) || Input.GetKeyDown(KeyCode.R) || click == BtnReinforce)
@@ -163,7 +164,7 @@ namespace IdleAdventurer
 
                 rows.Clear();
                 float rowTall = Mathf.Round(line * 1.3f);
-                for (int i = 0; i < IdleData.SlotCount; i++)
+                for (int i = 0; i < IdleData.ArmsSlots; i++)
                 {
                     int slot = SlotOfRow(i);
                     DaggerfallUnityItem item = w.gear[slot];
@@ -224,7 +225,7 @@ namespace IdleAdventurer
                     Wrap(Owner.note, x, y, listW, sc * 0.9f, line * 0.95f, IdleUi.Gold);
 
                 // ---- the selected piece
-                DaggerfallUnityItem sel = w.gear[SlotOfRow(Mathf.Clamp(Owner.row, 0, IdleData.SlotCount - 1))];
+                DaggerfallUnityItem sel = w.gear[SlotOfRow(Mathf.Clamp(Owner.row, 0, IdleData.ArmsSlots - 1))];
                 Rect card = new Rect(cardX, top, cardW, bottom - line * 0.5f - top);
                 IdleUi.Box(card, new Color(1f, 1f, 1f, 0.03f));
                 float cx = card.x + line * 0.5f;

@@ -192,7 +192,7 @@ namespace IdleAdventurer
                 int pct = 100 + IdleData.LevelDamagePercent * IdleSim.Level(item);
                 return (item.GetBaseDamageMin() * pct / 100 + mod) + "-" + (item.GetBaseDamageMax() * pct / 100 + mod);
             }
-            if (slot >= 0)
+            if (slot >= 0 && !IdleSim.Trinket(item))
                 return Signed(ArmorOf(item, slot));
             return "";
         }
@@ -445,7 +445,7 @@ namespace IdleAdventurer
                             cy += line;
                         }
                     }
-                    else if (slot >= 0)
+                    else if (slot >= 0 && !IdleSim.Trinket(item))
                     {
                         string text = "Armor +" + ArmorOf(item, slot) + (other != null ? "   (worn +" + ArmorOf(other, slot) + ")" : "");
                         IdleUi.Text(text, cx, cy, sc, IdleUi.White);

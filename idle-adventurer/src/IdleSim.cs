@@ -29,7 +29,15 @@ namespace IdleAdventurer
         // Gear slots 0-6 are the game's body parts (head, right arm, left arm, chest, hands, legs, feet).
         public const int SlotShield = 7;
         public const int SlotWeapon = 8;
-        public const int SlotCount = 9;
+        // Trinkets: no armor and no reinforcing, only sockets and enchantments, so a hero without plate still has
+        // somewhere to put gems and souls. Any class may wear them.
+        public const int SlotAmulet = 9;
+        public const int SlotRing = 10;
+        public const int SlotRobe = 11;
+        public const int SlotCount = 12;
+        public const int ArmsSlots = 9;         // the smith only works on weapons and armor (slots 0-8)
+        public static readonly int[] TrinketPrice = { 600, 300, 150 };     // a plain one at the jeweller, as Amulet, Ring, Robe
+        public const int TrinketChampion = 6, TrinketBoss = 35;           // percent: a trinket dropped by a kill
 
         public const int EvInfo = 0;
         public const int EvFight = 1;
@@ -132,7 +140,7 @@ namespace IdleAdventurer
         public static readonly int[] GemArmorTenths = { 5, 40, 10, 80, 20, 30, 20, 30 };
         public static readonly int[] GemWeaponOrder = { 0, 2, 4, 3, 7, 6, 1, 5 };      // which gem auto-socketing prefers
         public static readonly int[] GemArmorOrder = { 2, 0, 3, 4, 5, 7, 1, 6 };
-        public static readonly int[] MaxSockets = { 1, 1, 1, 3, 1, 2, 1, 2, 3 };        // per slot, as SlotNames
+        public static readonly int[] MaxSockets = { 1, 1, 1, 3, 1, 2, 1, 2, 3, 2, 1, 2 };        // per slot, as SlotNames
         public const int GemSecondFrom = 6;
         public static int GemUpgradeGold(int level) { return 200 << Math.Max(0, level - 1); }
         public static int GemRemoveGold(int level) { return 50 * level * level; }
@@ -323,7 +331,7 @@ namespace IdleAdventurer
             return cost;
         }
 
-        public static readonly string[] SlotNames = { "Head", "Right arm", "Left arm", "Chest", "Hands", "Legs", "Feet", "Shield", "Weapon" };
+        public static readonly string[] SlotNames = { "Head", "Right arm", "Left arm", "Chest", "Hands", "Legs", "Feet", "Shield", "Weapon", "Amulet", "Ring", "Robe" };
 
         public static int RoomsOnFloor(int floor)
         {
@@ -837,7 +845,7 @@ namespace IdleAdventurer
         static string ForbiddenAt(IdleSave s, DaggerfallUnityItem item, int rung)
         {
             DFCareer c = Career(s);
-            if (c == null || item == null || SlotFor(item) < 0)
+            if (c == null || item == null || SlotFor(item) < 0 || Trinket(item))
                 return null;
             string who = "Not for " + Article(c.Name) + ": ";
             bool metal = true;
@@ -883,6 +891,17 @@ namespace IdleAdventurer
                 return -1;
             if (item.ItemGroup == ItemGroups.Weapons)
                 return (item.TemplateIndex == (int)Weapons.Arrow) ? -1 : IdleData.SlotWeapon;
+            if (item.ItemGroup == ItemGroups.Jewellery)
+            {
+                int t = item.TemplateIndex;
+                if (t == (int)Jewellery.Amulet || t == (int)Jewellery.Torc || t == (int)Jewellery.Cloth_amulet)
+                    return IdleData.SlotAmulet;
+                return (t == (int)Jewellery.Ring || t == (int)Jewellery.Mark) ? IdleData.SlotRing : -1;
+            }
+            if (item.ItemGroup == ItemGroups.MensClothing)
+                return (item.TemplateIndex == (int)MensClothing.Plain_robes || item.TemplateIndex == (int)MensClothing.Priest_robes) ? IdleData.SlotRobe : -1;
+            if (item.ItemGroup == ItemGroups.WomensClothing)
+                return (item.TemplateIndex == (int)WomensClothing.Plain_robes || item.TemplateIndex == (int)WomensClothing.Priestess_robes) ? IdleData.SlotRobe : -1;
             if (item.ItemGroup != ItemGroups.Armor)
                 return -1;
             switch (item.TemplateIndex)
@@ -901,6 +920,70 @@ namespace IdleAdventurer
                     return IdleData.SlotShield;
             }
             return -1;
+        }
+
+        // An amulet, ring or robe: sockets and enchantments only.
+        public static bool Trinket(DaggerfallUnityItem item)
+        {
+            return SlotFor(item) >= IdleData.SlotAmulet;
+        }
+
+        // Trinkets take the weapon's gem effects (all of which help the whole hero) and any enchantment but Sturdy,
+        // which only counts on a body part.
+        public static bool GemsAsWeapon(DaggerfallUnityItem item)
+        {
+            return item != null && (item.ItemGroup == ItemGroups.Weapons || Trinket(item));
+        }
+
+        static bool CanRoll(DaggerfallUnityItem item, int kind)
+        {
+            if (IdleData.AffixOn[kind] < 0)
+                return false;
+            if (Trinket(item))
+                return kind != IdleData.AffixSturdy;
+            bool weapon = item.ItemGroup == ItemGroups.Weapons;
+            return IdleData.AffixOn[kind] == 2 || (IdleData.AffixOn[kind] == 1) == weapon;
+        }
+
+        // A plain trinket for a slot: the game's own amulet, ring, or robe for the hero's gender.
+        public static DaggerfallUnityItem NewTrinket(IdleSave s, int slot)
+        {
+            if (slot == IdleData.SlotAmulet)
+                return ItemBuilder.CreateItem(ItemGroups.Jewellery, (int)Jewellery.Amulet);
+            if (slot == IdleData.SlotRing)
+                return ItemBuilder.CreateItem(ItemGroups.Jewellery, (int)Jewellery.Ring);
+            return ((Genders)s.gender == Genders.Female)
+                ? ItemBuilder.CreateWomensClothing(WomensClothing.Plain_robes, (Races)s.race)
+                : ItemBuilder.CreateMensClothing(MensClothing.Plain_robes, (Races)s.race);
+        }
+
+        public static string CannotBuyTrinket(IdleWorld w, int slot)
+        {
+            int price = IdleData.TrinketPrice[slot - IdleData.SlotAmulet];
+            if (w.gear[slot] != null && w.stash.Count >= IdleData.StashSize)
+                return "The stash is full.";
+            if (price > w.s.gold)
+                return "Not enough gold: a plain " + IdleData.SlotNames[slot].ToLower() + " costs " + price + ".";
+            return null;
+        }
+
+        // Buys a plain trinket: worn at once if the slot is empty, otherwise into the stash.
+        public static bool BuyTrinket(IdleWorld w, int slot)
+        {
+            if (slot < IdleData.SlotAmulet || slot >= IdleData.SlotCount || CannotBuyTrinket(w, slot) != null)
+                return false;
+            DaggerfallUnityItem item = Built(w.s, delegate (int level) { return NewTrinket(w.s, slot); });
+            if (item == null)
+                return false;
+            int price = IdleData.TrinketPrice[slot - IdleData.SlotAmulet];
+            w.s.gold -= price;
+            w.s.jewelGold += price;
+            if (w.gear[slot] == null)
+                w.gear[slot] = item;
+            else
+                w.stash.Add(item);
+            RefreshBonus(w);
+            return true;
         }
 
         // Items are written one by one. The game's own item bag is keyed by item ID, and IDs start again every time
@@ -2381,6 +2464,11 @@ namespace IdleAdventurer
             {
                 s.championsKilled++;
             }
+            if ((boss || IsChampion(s)) && Roll(s, boss ? IdleData.TrinketBoss : IdleData.TrinketChampion))
+            {
+                int kind = IdleData.SlotAmulet + Range(s, 0, 2);
+                Take(w, Affixed(w, Built(s, delegate (int level) { return NewTrinket(s, kind); }), 1, boss));
+            }
             if (Roll(s, boss ? 60 : IsChampion(s) ? 15 : 3))
                 FindGem(w);
             if (s.soulGemsEmpty > 0 && !e.isClass && Roll(s, IdleData.SoulTrapChance))
@@ -2901,7 +2989,7 @@ namespace IdleAdventurer
                     sum += a[i + 1];
             if (baseScore)
                 return sum;
-            bool weapon = item.ItemGroup == ItemGroups.Weapons;
+            bool weapon = GemsAsWeapon(item);
             for (int i = 0; i < a[SocketsAt]; i++)
             {
                 int code = a[GemAt + i];
@@ -2936,11 +3024,10 @@ namespace IdleAdventurer
         static void RollEnchant(IdleSave s, DaggerfallUnityItem item, int at, int tier)
         {
             int[] a = DataFor(item);
-            bool weapon = item.ItemGroup == ItemGroups.Weapons;
             List<int> pool = new List<int>();
             for (int k = 0; k < IdleData.AffixKinds; k++)
             {
-                if (IdleData.AffixOn[k] < 0 || !(IdleData.AffixOn[k] == 2 || (IdleData.AffixOn[k] == 1) == weapon))
+                if (!CanRoll(item, k))
                     continue;
                 bool has = false;
                 for (int i = 1; i < EnchantEnd; i += 2)
@@ -2961,7 +3048,7 @@ namespace IdleAdventurer
         public static string CannotEnchant(IdleSave s, DaggerfallUnityItem item)
         {
             if (item == null || SlotFor(item) < 0)
-                return "Only weapons and armor take enchantments here.";
+                return "Only weapons, armor, amulets, rings and robes take enchantments here.";
             if (Enchants(item) >= IdleData.MaxEnchants)
                 return "Three enchantments is the most a piece holds; roll one anew instead.";
             int tier = BestSoul(s);
@@ -3110,7 +3197,7 @@ namespace IdleAdventurer
         public static List<string> SocketLines(DaggerfallUnityItem item)
         {
             List<string> lines = new List<string>();
-            bool weapon = item != null && item.ItemGroup == ItemGroups.Weapons;
+            bool weapon = GemsAsWeapon(item);
             for (int i = 0; i < Sockets(item); i++)
             {
                 int code = GemIn(item, i);
@@ -3146,7 +3233,7 @@ namespace IdleAdventurer
         public static string CannotAddSocket(IdleSave s, DaggerfallUnityItem item)
         {
             if (item == null || SlotFor(item) < 0)
-                return "Only weapons and armor take sockets.";
+                return "Only weapons, armor, amulets, rings and robes take sockets.";
             if (Sockets(item) >= MaxSockets(item))
                 return "This piece takes no more than " + MaxSockets(item) + " socket(s).";
             if (SocketCost(item) > s.gold)
@@ -3171,7 +3258,7 @@ namespace IdleAdventurer
         // The best gem in the pouch for a piece: highest level, then the slot's preferred kind. -1 when none.
         public static int BestPouchGem(IdleSave s, DaggerfallUnityItem item)
         {
-            int[] order = (item.ItemGroup == ItemGroups.Weapons) ? IdleData.GemWeaponOrder : IdleData.GemArmorOrder;
+            int[] order = GemsAsWeapon(item) ? IdleData.GemWeaponOrder : IdleData.GemArmorOrder;
             for (int level = IdleData.GemTop; level >= 1; level--)
                 for (int i = 0; i < order.Length; i++)
                     if (s.gems[order[i] * 16 + level] > 0)
@@ -3267,6 +3354,10 @@ namespace IdleAdventurer
             if (s.noAutoSmith)
                 return 0;
             long before = s.jewelGold;
+            // An empty amulet, ring or robe slot gets a plain one, to take gems and enchantments.
+            for (int slot = IdleData.SlotAmulet; slot < IdleData.SlotCount; slot++)
+                if (w.gear[slot] == null && (long)IdleData.TrinketPrice[slot - IdleData.SlotAmulet] * 2 <= s.gold)
+                    BuyTrinket(w, slot);
             for (int guard = 0; guard < 300; guard++)
             {
                 for (int i = 0; i < w.gear.Length; i++)
@@ -3368,7 +3459,7 @@ namespace IdleAdventurer
 
         public static int LevelCap(DaggerfallUnityItem item)
         {
-            return (item == null || SlotFor(item) < 0) ? 0 : CapAt(item, Rung(item));
+            return (item == null || SlotFor(item) < 0 || Trinket(item)) ? 0 : CapAt(item, Rung(item));
         }
 
         // The next reinforcement step: its gold and ingots. Ingots short in the pouch are bought at the smith.
@@ -3409,6 +3500,8 @@ namespace IdleAdventurer
         {
             if (item == null || SlotFor(item) < 0)
                 return "Only weapons and armor can be reinforced.";
+            if (Trinket(item))
+                return "Amulets, rings and robes are not reinforced; the jeweller and the enchanter work on them.";
             if (Level(item) >= LevelCap(item))
                 return MetalName(item) + " goes no higher than +" + LevelCap(item) + ". Reforge it into a better metal.";
             if (IngotBill(s, Metal(item), StepIngots(item)) >= IdleData.Unbuyable)
@@ -3472,6 +3565,8 @@ namespace IdleAdventurer
         {
             if (item == null || SlotFor(item) < 0)
                 return "Only weapons and armor can be reforged.";
+            if (Trinket(item))
+                return "Amulets, rings and robes are not reforged.";
             if (Rung(item) >= TopRung(item))
                 return "Daedric is the best metal there is.";
             if (!Reforgeable(item))
@@ -3554,7 +3649,7 @@ namespace IdleAdventurer
                 for (int i = 0; i < w.gear.Length; i++)
                 {
                     DaggerfallUnityItem item = w.gear[i];
-                    if (item == null || !Works(item))
+                    if (item == null || !Works(item) || Trinket(item))
                         continue;
                     bool atTop = Level(item) >= LevelCap(item);
                     if (atTop && Rung(item) >= TopRung(item))
@@ -3614,6 +3709,8 @@ namespace IdleAdventurer
         // What the reinforcement level adds, for item cards.
         public static string LevelLine(DaggerfallUnityItem item)
         {
+            if (Trinket(item))
+                return "Up to " + MaxSockets(item) + " socket(s); any enchantment but armor";
             int level = Level(item);
             string top = " (" + MetalName(item) + " reaches +" + LevelCap(item) + ")";
             if (item.ItemGroup == ItemGroups.Weapons)
@@ -3644,7 +3741,6 @@ namespace IdleAdventurer
             int sockets = (boss && Roll(s, 50)) ? 1 : (IsChampion(s) && Roll(s, 5)) ? 1 : 0;
             if (level == 0 && enchants == 0 && sockets == 0)
                 return item;
-            bool weapon = slot == IdleData.SlotWeapon;
             int[] a = DataFor(item);
             a[0] = level;
             a[SocketsAt] = Mathf.Min(sockets, MaxSockets(item));
@@ -3655,7 +3751,7 @@ namespace IdleAdventurer
                 bool prefix = (enchants == 2) ? (n == 0) : prefixFirst;
                 List<int> pool = new List<int>();
                 for (int k = 0; k < IdleData.AffixKinds; k++)
-                    if (IdleData.AffixOn[k] >= 0 && IdleData.AffixPrefix[k] == prefix && (IdleData.AffixOn[k] == 2 || (IdleData.AffixOn[k] == 1) == weapon))
+                    if (IdleData.AffixPrefix[k] == prefix && CanRoll(item, k))
                         pool.Add(k);
                 if (pool.Count == 0)
                     continue;
@@ -3705,7 +3801,7 @@ namespace IdleAdventurer
         // A piece's armor points: the game's own number, Sturdy, and one for every two reinforcement levels.
         public static int ArmorValue(DaggerfallUnityItem item, bool shield)
         {
-            if (item == null)
+            if (item == null || Trinket(item))
                 return 0;
             return (shield ? item.GetShieldArmorValue() : item.GetMaterialArmorValue()) + AffixValue(item, IdleData.AffixSturdy) + Level(item) / 2;
         }
@@ -4020,7 +4116,7 @@ namespace IdleAdventurer
                 }
                 if (item == null)
                     continue;
-                if (SlotFor(item) >= 0 && Works(item))
+                if (SlotFor(item) >= 0 && Works(item) && !(Trinket(item) && AffixesOf(item) == null))
                     sold += Store(w, item);
                 else
                 {
