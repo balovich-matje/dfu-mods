@@ -480,7 +480,20 @@ dungeons, into power. Every one is a ladder whose next step costs more than the 
 - Not done: jewellery and robes with sockets, staffs as their own line, lockpicks and chests. Mages still wear any
   armor the sim finds best; there is no casting penalty for plate.
 
-### 13.14 Phase order
+### 13.14 Phase 6 as built (0.15.0)
+
+- Town screen (H in the hub) with three services:
+  - Temple blessing chosen once and bought before each run (30 x level + level^2 gold): Might (+3 + level/4
+    damage), Protection (1 + level/10 less damage a hit), Grace (+15 dodging), Fortune (+30% gold). New heroes ask
+    for Might (mages Protection); old heroes have none until chosen.
+  - House: inn room, cottage 20 k, town house 150 k, manor 1 M, castle 6 M. Each step adds 6 h to the offline cap
+    (12 h at the inn) and speeds the home furnace (4 / (4 + tier) of the time). Auto-smith moves up at half the gold.
+  - Trainer: a skill point for 3 x (skill + 1)^2 gold, up to 30 + 3 per level; trained points do not raise the
+    level. Auto-smith trains the skills in use with up to a quarter of the gold.
+- Balance (200 runs): trainer 0.13-2.6 M, temple 0.08-0.17 M, houses up to 170 k. Gold left: warrior 1.0 M and
+  rogue 0.96 M (both just short of the 2 M at which auto buys the manor), mage 0.35 M, caves 37-84 k.
+
+### 13.15 Phase order
 
 1. Reinforcement and reforging, with ingots bought from the smith only; rarity replaced, saves migrated.
 2. Mining, pickaxes, the materials pouch and the smelter queue.

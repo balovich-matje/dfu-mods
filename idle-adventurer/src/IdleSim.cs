@@ -172,6 +172,35 @@ namespace IdleAdventurer
         public static readonly int[] PoisonDamage = { 3, 6, 10, 16, 24, 35 };
         public const int PoisonKinds = 6;
         public const int PoisonChance = 25, RoguePoisonChance = 45;
+
+        // Temple blessings: one chosen kind, bought before each run, lasting that run. The price grows with level.
+        public static readonly string[] BlessingNames = { "Might", "Protection", "Grace", "Fortune" };
+        public static readonly string[] BlessingText = { "+{0} damage", "{0} less damage from every hit", "+{0} dodging", "+{0}% gold found" };
+        public const int BlessingKinds = 4;
+        public static int BlessingValue(int kind, int level)
+        {
+            switch (kind)
+            {
+                case 0: return 3 + level / 4;
+                case 1: return 1 + level / 10;
+                case 2: return 15;
+            }
+            return 30;
+        }
+        public static int BlessingPrice(int level) { return 30 * level + level * level; }
+
+        // The trainer: one skill point for gold, up to 30 + 3 per level. Trained points do not count toward levels.
+        public static readonly int[] TrainSkills = { (int)DFCareer.Skills.LongBlade, (int)DFCareer.Skills.ShortBlade, (int)DFCareer.Skills.Axe,
+            (int)DFCareer.Skills.BluntWeapon, (int)DFCareer.Skills.Dodging, (int)DFCareer.Skills.CriticalStrike, (int)DFCareer.Skills.Medical,
+            (int)DFCareer.Skills.Destruction, (int)DFCareer.Skills.Restoration, (int)DFCareer.Skills.Alteration };
+        public static int TrainGold(int skill) { return (skill + 1) * (skill + 1) * 3; }
+        public static int TrainCap(int level) { return Math.Min(100, 30 + 3 * level); }
+
+        // A house in town: a longer offline cap and a home furnace that smelts faster.
+        public static readonly string[] HouseNames = { "a room at the inn", "a cottage", "a town house", "a manor", "a castle" };
+        public static readonly int[] HousePrice = { 0, 20000, 150000, 1000000, 6000000 };
+        public const int HouseTop = 4;
+        public static int OfflineCap(int house) { return (12 + 6 * house) * 3600; }
         public static readonly string[] EnchantNames = { "Plain", "Enchanted", "Twice enchanted", "Thrice enchanted" };
 
         // Reinforcement (+1 to +25): every level adds 6% of a weapon's base damage, or 1 armor every 2 levels. The
@@ -389,6 +418,11 @@ namespace IdleAdventurer
         public int coated;                  // poison tier + 1 on the weapon this run; 0 none
         public int poisonHits, vialsUsed;
         public long alchemyGold, spellRankGold;
+        public int blessing;                // blessing kind + 1 bought before each run; 0 none
+        public int blessed;                 // blessing kind + 1 on the hero this run
+        public int house;                   // IdleData house tier
+        public long templeGold, trainerGold, houseGold;
+        public int pointsTrained;
         public int soulGemsToCarry = 2;     // empty soul gems bought before each run
         public int soulGemsEmpty;
         public int[] souls;                 // filled soul gems per IdleData soul tier
@@ -563,6 +597,7 @@ namespace IdleAdventurer
             Genders g = (Genders)s.gender;
             Races r = (Races)s.race;
             s.heroClass = Mathf.Clamp(heroClass, 0, IdleData.Classes - 1);
+            s.blessing = (s.heroClass == IdleData.ClassMage) ? 2 : 1;      // Protection for mages, Might for the others
             Arrays(s);
             if (s.heroClass == IdleData.ClassMage)
             {
@@ -1003,6 +1038,7 @@ namespace IdleAdventurer
             s.vein = 0;
             s.miningMetal = 0;
             Coat(w);
+            Bless(w);
             if (w.record)
                 w.Emit(IdleData.EvInfo, s.heroName + " sets out for " + Destination(s) + ", floors " + s.startFloor + " to " + s.targetFloor);
         }
@@ -1442,6 +1478,113 @@ namespace IdleAdventurer
                 if (s.ruleDo[i] == want && s.ruleIf[i] != IdleData.IfOff)
                     return true;
             return false;
+        }
+
+        // ------------------------------------------------------------------ temple, trainer, house
+
+        static void Bless(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            s.blessed = 0;
+            if (s.blessing > 0 && s.gold >= IdleData.BlessingPrice(s.level) * 3)
+            {
+                s.gold -= IdleData.BlessingPrice(s.level);
+                s.templeGold += IdleData.BlessingPrice(s.level);
+                s.blessed = s.blessing;
+                if (w.record)
+                    w.Emit(IdleData.EvInfo, "The temple blesses " + s.heroName + " with " + IdleData.BlessingNames[s.blessing - 1]);
+            }
+            RefreshBonus(w);
+        }
+
+        public static string CannotTrain(IdleSave s, int skill)
+        {
+            if (s.skills[skill] >= IdleData.TrainCap(s.level))
+                return "The trainer teaches up to " + IdleData.TrainCap(s.level) + " at level " + s.level + ".";
+            if (IdleData.TrainGold(s.skills[skill]) > s.gold)
+                return "Not enough gold: the next point costs " + IdleData.TrainGold(s.skills[skill]) + ".";
+            return null;
+        }
+
+        public static bool Train(IdleSave s, int skill)
+        {
+            if (CannotTrain(s, skill) != null)
+                return false;
+            int cost = IdleData.TrainGold(s.skills[skill]);
+            s.gold -= cost;
+            s.trainerGold += cost;
+            s.skills[skill]++;
+            s.pointsTrained++;
+            return true;
+        }
+
+        // The skills the hero actually uses: the worn weapon's, dodging, critical strike, medical, and the schools of
+        // spells the orders cast.
+        public static bool Uses(IdleWorld w, int skill)
+        {
+            IdleSave s = w.s;
+            DaggerfallUnityItem weapon = w.gear[IdleData.SlotWeapon];
+            if (weapon != null && weapon.GetWeaponSkillIDAsShort() == skill)
+                return true;
+            if (skill == (int)DFCareer.Skills.Dodging || skill == (int)DFCareer.Skills.CriticalStrike || skill == (int)DFCareer.Skills.Medical)
+                return true;
+            for (int k = 0; k < IdleData.SpellKinds; k++)
+                if (IdleData.SpellSchool[k] == skill && Used(s, k))
+                    return true;
+            return false;
+        }
+
+        static void AutoTrain(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            if (s.noAutoSmith)
+                return;
+            for (int guard = 0; guard < 100; guard++)
+            {
+                int best = -1, bestCost = int.MaxValue;
+                for (int i = 0; i < IdleData.TrainSkills.Length; i++)
+                {
+                    int k = IdleData.TrainSkills[i];
+                    if (Uses(w, k) && CannotTrain(s, k) == null && IdleData.TrainGold(s.skills[k]) < bestCost)
+                    {
+                        best = k;
+                        bestCost = IdleData.TrainGold(s.skills[k]);
+                    }
+                }
+                if (best < 0 || (long)bestCost * 4 > s.gold || !Train(s, best))
+                    break;
+            }
+        }
+
+        public static string CannotBuyHouse(IdleSave s)
+        {
+            if (s.house >= IdleData.HouseTop)
+                return "A castle is as grand as it gets.";
+            if (IdleData.HousePrice[s.house + 1] > s.gold)
+                return "Not enough gold: " + IdleData.HouseNames[s.house + 1] + " costs " + IdleData.HousePrice[s.house + 1] + ".";
+            return null;
+        }
+
+        public static bool BuyHouse(IdleSave s)
+        {
+            if (CannotBuyHouse(s) != null)
+                return false;
+            s.house++;
+            s.gold -= IdleData.HousePrice[s.house];
+            s.houseGold += IdleData.HousePrice[s.house];
+            return true;
+        }
+
+        // Under auto-smith the hero moves up once the next house costs at most half the gold.
+        static void AutoHouse(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            if (!s.noAutoSmith && s.house < IdleData.HouseTop && (long)IdleData.HousePrice[s.house + 1] * 2 <= s.gold)
+            {
+                BuyHouse(s);
+                if (w.record)
+                    w.Emit(IdleData.EvHome, s.heroName + " moves into " + IdleData.HouseNames[s.house]);
+            }
         }
 
         // ------------------------------------------------------------------ poisons
@@ -2333,7 +2476,7 @@ namespace IdleAdventurer
             for (int m = 0; m < IdleData.Metals; m++)
             {
                 int waiting = s.smeltQueue[m] - ((s.smeltMetal == m + 1) ? 1 : 0);
-                ticks += waiting * IdleData.SmeltSeconds(m) * IdleData.TicksPerSecond;
+                ticks += waiting * IdleData.SmeltSeconds(m) * IdleData.TicksPerSecond * 4 / (4 + s.house);
             }
             return (ticks + IdleData.TicksPerSecond - 1) / IdleData.TicksPerSecond;
         }
@@ -2384,7 +2527,7 @@ namespace IdleAdventurer
                         if (s.smeltQueue[m] > 0)
                         {
                             s.smeltMetal = m + 1;
-                            s.smeltLeft = IdleData.SmeltSeconds(m) * IdleData.TicksPerSecond;
+                            s.smeltLeft = IdleData.SmeltSeconds(m) * IdleData.TicksPerSecond * 4 / (4 + s.house);
                         }
                     if (s.smeltMetal == 0)
                         return;
@@ -3321,6 +3464,12 @@ namespace IdleAdventurer
                     if (k != IdleData.AffixSturdy)          // Sturdy counts on its own body part
                         s.bonus[k] += AffixValue(w.gear[i], k);
             }
+            if (s.blessed > 0)
+            {
+                int kind = s.blessed - 1;
+                int[] to = { IdleData.AffixCruel, IdleData.AffixTough, IdleData.AffixNimble, IdleData.AffixFortune };
+                s.bonus[to[kind]] += IdleData.BlessingValue(kind, s.level);
+            }
             for (int k = 0; k < s.bonus.Length; k++)
                 s.bonus[k] = Mathf.Min(s.bonus[k], IdleData.AffixCap[k]);
         }
@@ -3622,6 +3771,8 @@ namespace IdleAdventurer
             s.recall = 0;
             s.health = s.maxHealth;
             s.healCarry = 0;
+            s.blessed = 0;
+            RefreshBonus(w);
             s.magicka = MaxMagicka(s);
             s.magickaCarry = 0;
 
@@ -3697,6 +3848,8 @@ namespace IdleAdventurer
             smith += AutoEnchant(w);
             smith += AutoRank(w);
             AutoAlchemy(w);
+            AutoTrain(w);
+            AutoHouse(w);
 
             Restock(w);
             RefreshBonus(w);
@@ -3717,7 +3870,7 @@ namespace IdleAdventurer
                     gear += (gear.Length > 0 ? ", " : "") + Name(w.gear[i]);
             return "level " + s.level + ", health " + s.maxHealth + ", gold " + s.gold + ", runs " + s.expeditions + " (cleared " + s.clears
                 + ", retreated " + s.retreats + ", died " + s.deaths + "), kills " + s.kills + ", deepest floor " + s.deepestFloor
-                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", spells " + s.spellsCast + "/" + s.enemySpellsCast + ", enchanted items " + s.affixesFound + ", levels bought " + s.levelsBought + ", reforges " + s.reforges + ", smith gold " + s.smithGold + ", veins " + s.veinsMined + ", ore " + s.oreMined + ", smelted " + s.ingotsSmelted + ", salvaged " + s.ingotsSalvaged + ", picks broken " + s.picksBroken + ", gems " + s.gemsFound + ", sockets added " + s.socketsAdded + ", gem upgrades " + s.gemUpgrades + ", jeweller gold " + s.jewelGold + ", souls " + s.soulsTrapped + ", enchanted " + s.enchantsAdded + ", enchanter gold " + s.enchantGold + ", " + IdleData.ClassNames[s.heroClass] + ", spell ranks gold " + s.spellRankGold + ", poisons " + s.poisonsKnown + " (" + s.poisonHits + " hits, alchemy gold " + s.alchemyGold + ")" + ", " + PickName(s) + ", hearts " + s.hearts + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
+                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", spells " + s.spellsCast + "/" + s.enemySpellsCast + ", enchanted items " + s.affixesFound + ", levels bought " + s.levelsBought + ", reforges " + s.reforges + ", smith gold " + s.smithGold + ", veins " + s.veinsMined + ", ore " + s.oreMined + ", smelted " + s.ingotsSmelted + ", salvaged " + s.ingotsSalvaged + ", picks broken " + s.picksBroken + ", gems " + s.gemsFound + ", sockets added " + s.socketsAdded + ", gem upgrades " + s.gemUpgrades + ", jeweller gold " + s.jewelGold + ", souls " + s.soulsTrapped + ", enchanted " + s.enchantsAdded + ", enchanter gold " + s.enchantGold + ", " + IdleData.ClassNames[s.heroClass] + ", spell ranks gold " + s.spellRankGold + ", poisons " + s.poisonsKnown + " (" + s.poisonHits + " hits, alchemy gold " + s.alchemyGold + "), temple " + s.templeGold + ", trained " + s.pointsTrained + " for " + s.trainerGold + ", house " + s.house + " (" + s.houseGold + ")" + ", " + PickName(s) + ", hearts " + s.hearts + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
                 + (long)(s.goldEarned / Mathf.Max(0.05f, s.clock / 36000f)) + " | " + gear;
         }
 

@@ -368,7 +368,7 @@ namespace IdleAdventurer
             if (s.lastSeenUtcTicks <= 0 || (s.phase == IdleData.PhaseTown && s.autoRepeat == 0))
                 return;
             double away = (DateTime.UtcNow - new DateTime(s.lastSeenUtcTicks, DateTimeKind.Utc)).TotalSeconds;
-            long seconds = (long)Math.Max(0, Math.Min(away, IdleData.OfflineCapSeconds));
+            long seconds = (long)Math.Max(0, Math.Min(away, IdleData.OfflineCap(w.s.house)));
             if (seconds < 2)
                 return;
             int runs = s.expeditions;
@@ -440,6 +440,11 @@ namespace IdleAdventurer
                     DaggerfallUI.UIManager.PushWindow(new IdleCallingWindow(DaggerfallUI.UIManager, this, false));
                     return;
                 }
+            }
+            if (Input.GetKeyDown(KeyCode.H) || click == HubCanvas.BtnTown)
+            {
+                DaggerfallUI.UIManager.PushWindow(new IdleTownWindow(DaggerfallUI.UIManager, this));
+                return;
             }
             if (Input.GetKeyDown(KeyCode.A) || click == HubCanvas.BtnAlchemy)
             {
@@ -513,7 +518,7 @@ namespace IdleAdventurer
 
         class HubCanvas : BaseScreenComponent
         {
-            public const int BtnGo = 1, BtnView = 2, BtnRepeat = 3, BtnDeeper = 4, BtnLess = 5, BtnMore = 6, BtnSpeed = 7, BtnTest = 8, BtnBack = 9, BtnHero = 10, BtnMap = 11, BtnSkip = 12, BtnOrders = 13, BtnSpells = 14, BtnSmith = 15, BtnForge = 16, BtnJewel = 17, BtnEnchant = 18, BtnAlchemy = 19;
+            public const int BtnGo = 1, BtnView = 2, BtnRepeat = 3, BtnDeeper = 4, BtnLess = 5, BtnMore = 6, BtnSpeed = 7, BtnTest = 8, BtnBack = 9, BtnHero = 10, BtnMap = 11, BtnSkip = 12, BtnOrders = 13, BtnSpells = 14, BtnSmith = 15, BtnForge = 16, BtnJewel = 17, BtnEnchant = 18, BtnAlchemy = 19, BtnTown = 20;
             public string[] Report;
             public readonly IdleButtons Buttons = new IdleButtons();
 
@@ -688,6 +693,7 @@ namespace IdleAdventurer
                 bx += Buttons.Add(BtnJewel, "Jeweller (J)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnEnchant, "Enchanter (E)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnAlchemy, "Alchemist (A)", bx, bottom, tall, false) + gap;
+                bx += Buttons.Add(BtnTown, "Town (H)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnSpeed, "Speed " + IdleClock.Speed + "x (F)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnTest, "Test (T)", bx, bottom, tall, false) + gap;
                 Buttons.Add(BtnBack, "Back (Esc)", bx, bottom, tall, false);
