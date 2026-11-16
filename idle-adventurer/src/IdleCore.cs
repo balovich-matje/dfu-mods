@@ -54,8 +54,13 @@ namespace IdleAdventurer
 
         public static void NewHero()
         {
+            NewHero(IdleData.ClassWarrior);
+        }
+
+        public static void NewHero(int heroClass)
+        {
             int opened = (W != null) ? W.s.opened : 0;
-            W = IdleSim.NewHero((int)(DateTime.UtcNow.Ticks & 0x7fffffff), "Adventurer");
+            W = IdleSim.NewHero((int)(DateTime.UtcNow.Ticks & 0x7fffffff), "Adventurer", heroClass);
             W.s.opened = opened;
         }
 
@@ -327,6 +332,7 @@ namespace IdleAdventurer
         static readonly Color Blue = new Color(0.55f, 0.75f, 1f, 1f);
 
         HubCanvas canvas;
+        bool askedCalling;
 
         public IdleHubWindow(IUserInterfaceManager uiManager, IUserInterfaceWindow previous)
             : base(uiManager, previous)
@@ -424,6 +430,22 @@ namespace IdleAdventurer
                 DaggerfallUI.UIManager.PushWindow(new IdleSpellsWindow(DaggerfallUI.UIManager, this));
                 return;
             }
+            if (!askedCalling)
+            {
+                // A brand-new hero first picks a calling.
+                askedCalling = true;
+                IdleSave fresh = IdleStore.W.s;
+                if (fresh.expeditions == 0 && fresh.classChosen == 0 && fresh.phase == IdleData.PhaseTown)
+                {
+                    DaggerfallUI.UIManager.PushWindow(new IdleCallingWindow(DaggerfallUI.UIManager, this, false));
+                    return;
+                }
+            }
+            if (Input.GetKeyDown(KeyCode.A) || click == HubCanvas.BtnAlchemy)
+            {
+                DaggerfallUI.UIManager.PushWindow(new IdleAlchemyWindow(DaggerfallUI.UIManager, this));
+                return;
+            }
             if (Input.GetKeyDown(KeyCode.E) || click == HubCanvas.BtnEnchant)
             {
                 DaggerfallUI.UIManager.PushWindow(new IdleEnchantWindow(DaggerfallUI.UIManager, this));
@@ -470,11 +492,7 @@ namespace IdleAdventurer
             }
             if (Input.GetKeyDown(KeyCode.N) && shift)
             {
-                IdleStore.NewHero();
-                IdlePlaces.Name(IdleStore.W);
-                IdleStore.W.record = true;
-                IdleStore.W.Emit(IdleData.EvInfo, "A new adventurer arrives in town");
-                IdleStore.Save();
+                DaggerfallUI.UIManager.PushWindow(new IdleCallingWindow(DaggerfallUI.UIManager, this, true));
                 return;
             }
 
@@ -495,7 +513,7 @@ namespace IdleAdventurer
 
         class HubCanvas : BaseScreenComponent
         {
-            public const int BtnGo = 1, BtnView = 2, BtnRepeat = 3, BtnDeeper = 4, BtnLess = 5, BtnMore = 6, BtnSpeed = 7, BtnTest = 8, BtnBack = 9, BtnHero = 10, BtnMap = 11, BtnSkip = 12, BtnOrders = 13, BtnSpells = 14, BtnSmith = 15, BtnForge = 16, BtnJewel = 17, BtnEnchant = 18;
+            public const int BtnGo = 1, BtnView = 2, BtnRepeat = 3, BtnDeeper = 4, BtnLess = 5, BtnMore = 6, BtnSpeed = 7, BtnTest = 8, BtnBack = 9, BtnHero = 10, BtnMap = 11, BtnSkip = 12, BtnOrders = 13, BtnSpells = 14, BtnSmith = 15, BtnForge = 16, BtnJewel = 17, BtnEnchant = 18, BtnAlchemy = 19;
             public string[] Report;
             public readonly IdleButtons Buttons = new IdleButtons();
 
@@ -611,7 +629,7 @@ namespace IdleAdventurer
                 Text("Idle Adventurer", x, y, sc * 1.4f, DaggerfallUI.DaggerfallDefaultTextColor);
                 y += line * 1.5f;
 
-                Text(s.heroName + ", level " + s.level + "    Gold " + s.gold + "    Health " + s.health + "/" + s.maxHealth + "    Magicka " + s.magicka + "/" + IdleSim.MaxMagicka(s)
+                Text(s.heroName + ", " + IdleData.ClassNames[Mathf.Clamp(s.heroClass, 0, IdleData.Classes - 1)].ToLower() + ", level " + s.level + "    Gold " + s.gold + "    Health " + s.health + "/" + s.maxHealth + "    Magicka " + s.magicka + "/" + IdleSim.MaxMagicka(s)
                     + "    Potions " + s.potions + "/" + s.potionsToCarry, x, y, sc, White);
                 y += line;
                 Bar(new Rect(x, y, inner * 0.4f, Mathf.Round(line * 0.3f)), (float)s.health / Mathf.Max(1, s.maxHealth), Bad);
@@ -669,6 +687,7 @@ namespace IdleAdventurer
                 bx += Buttons.Add(BtnForge, "Forge (B)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnJewel, "Jeweller (J)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnEnchant, "Enchanter (E)", bx, bottom, tall, false) + gap;
+                bx += Buttons.Add(BtnAlchemy, "Alchemist (A)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnSpeed, "Speed " + IdleClock.Speed + "x (F)", bx, bottom, tall, false) + gap;
                 bx += Buttons.Add(BtnTest, "Test (T)", bx, bottom, tall, false) + gap;
                 Buttons.Add(BtnBack, "Back (Esc)", bx, bottom, tall, false);
@@ -802,6 +821,21 @@ namespace IdleAdventurer
                     + (levels / (float)heroes).ToString("0.0") + ", deepest floor " + (floors / (float)heroes).ToString("0.0") + ", gold " + (gold / heroes)
                     + ", " + (ticks / heroes / 600) + " min");
 
+                // The same for the other callings.
+                for (int cls = 1; cls < IdleData.Classes; cls++)
+                {
+                    int cd = 0, cl = 0, cf = 0;
+                    for (int seed = 1; seed <= heroes; seed++)
+                    {
+                        IdleWorld ten = IdleSim.Simulate(seed * 104729, 10, true, -1, cls);
+                        cd += ten.s.deaths;
+                        cl += ten.s.level;
+                        cf += ten.s.deepestFloor;
+                    }
+                    lines.Add("Same as a " + IdleData.ClassNames[cls].ToLower() + ": " + (cd / (float)heroes).ToString("0.0") + " deaths, level "
+                        + (cl / (float)heroes).ToString("0.0") + ", deepest floor " + (cf / (float)heroes).ToString("0.0"));
+                }
+
                 // The same 40 heroes with every order switched off but "always attack", for comparison.
                 int bareDeaths = 0, bareLevels = 0, bareFloors = 0;
                 for (int seed = 1; seed <= heroes; seed++)
@@ -846,6 +880,8 @@ namespace IdleAdventurer
                 int[] marks = { 10, 50, 200 };
                 for (int i = 0; i < marks.Length; i++)
                     lines.Add("After " + marks[i] + " runs: " + IdleSim.Summary(IdleSim.Simulate(777, marks[i], true)));
+                lines.Add("After 200 runs as a mage: " + IdleSim.Summary(IdleSim.Simulate(777, 200, true, -1, IdleData.ClassMage)));
+                lines.Add("After 200 runs as a rogue: " + IdleSim.Summary(IdleSim.Simulate(777, 200, true, -1, IdleData.ClassRogue)));
                 lines.Add("After 200 runs in natural caves: " + IdleSim.Summary(IdleSim.Simulate(777, 200, true, IdleData.DungeonNaturalCave)));
                 lines.Add("After 200 runs in volcanic caves: " + IdleSim.Summary(IdleSim.Simulate(777, 200, true, IdleData.DungeonVolcanicCaves)));
             }

@@ -149,6 +149,29 @@ namespace IdleAdventurer
         public static int SoulTier(int enemyLevel) { return Math.Min(SoulTiers - 1, Math.Max(0, enemyLevel / 5)); }
         public static int EnchantGold(int existing, int tier) { return 250 * (tier + 1) * (tier + 1) * (existing + 1) * (existing + 1); }
         public static int RerollGold(int tier) { return 150 * (tier + 1) * (tier + 1); }
+
+        // Callings: what a new hero starts as. Warriors wear plate, mages carry half again the magicka and start with
+        // spells, rogues land poison more often and start knowing the first poison.
+        public const int ClassWarrior = 0, ClassMage = 1, ClassRogue = 2, Classes = 3;
+        public static readonly string[] ClassNames = { "Warrior", "Mage", "Rogue" };
+        public static readonly string[] ClassText = {
+            "Long blades, shield and heavy armor. Strong and hardy; the default.",
+            "A staff and light armor; half again the magicka, starts knowing Shock, Wizard's Fire and Heal, and casts first.",
+            "A short blade and leather; quick and lucky, poisons land far more often, starts knowing Nux Vomica." };
+
+        // Spell ranks I to X: each rank adds 15% to the spell's strength and takes 4% off its cost.
+        public const int RankTop = 10;
+        public static int RankGold(int spell, int rank) { return (SpellPrice[spell] + 250) * rank * rank; }
+
+        // Poisons, the game's own: a recipe learned once at the alchemist, then a vial bought before each run coats
+        // the weapon for that run. A coated hit sometimes adds the poison's damage; undead, daedra, atronachs and
+        // gargoyles shrug it off.
+        public static readonly string[] PoisonNames = { "Nux Vomica", "Arsenic", "Moonseed", "Drothweed", "Pyrrhic Acid", "Magebane" };
+        public static readonly int[] PoisonRecipe = { 300, 1500, 6000, 20000, 60000, 150000 };
+        public static readonly int[] PoisonVial = { 40, 120, 350, 900, 2200, 5500 };
+        public static readonly int[] PoisonDamage = { 3, 6, 10, 16, 24, 35 };
+        public const int PoisonKinds = 6;
+        public const int PoisonChance = 25, RoguePoisonChance = 45;
         public static readonly string[] EnchantNames = { "Plain", "Enchanted", "Twice enchanted", "Thrice enchanted" };
 
         // Reinforcement (+1 to +25): every level adds 6% of a weapon's base damage, or 1 armor every 2 levels. The
@@ -358,6 +381,14 @@ namespace IdleAdventurer
         public int[] ruleDo;
         public int potions = 2;
         public int potionsToCarry = 3;
+        public int heroClass;               // IdleData class; 0 warrior for heroes from before callings
+        public int classChosen;             // 1 once the player picked a calling
+        public int[] spellRanks;            // per spell, 0 for rank I
+        public int poisonsKnown;            // how many poison recipes, in order
+        public bool noPoison;               // true: do not coat the weapon
+        public int coated;                  // poison tier + 1 on the weapon this run; 0 none
+        public int poisonHits, vialsUsed;
+        public long alchemyGold, spellRankGold;
         public int soulGemsToCarry = 2;     // empty soul gems bought before each run
         public int soulGemsEmpty;
         public int[] souls;                 // filled soul gems per IdleData soul tier
@@ -502,6 +533,11 @@ namespace IdleAdventurer
 
         public static IdleWorld NewHero(int seed, string name)
         {
+            return NewHero(seed, name, IdleData.ClassWarrior);
+        }
+
+        public static IdleWorld NewHero(int seed, string name, int heroClass)
+        {
             IdleWorld w = new IdleWorld();
             IdleSave s = new IdleSave();
             w.s = s;
@@ -526,15 +562,58 @@ namespace IdleAdventurer
 
             Genders g = (Genders)s.gender;
             Races r = (Races)s.race;
-            Equip(w, ItemBuilder.CreateWeapon(Weapons.Broadsword, WeaponMaterialTypes.Iron));
-            Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Cuirass, ArmorMaterialTypes.Leather));
-            Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Greaves, ArmorMaterialTypes.Leather));
-            Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Boots, ArmorMaterialTypes.Leather));
-            Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Helm, ArmorMaterialTypes.Leather));
-            Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Gauntlets, ArmorMaterialTypes.Leather));
-            Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Left_Pauldron, ArmorMaterialTypes.Leather));
-            Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Right_Pauldron, ArmorMaterialTypes.Leather));
-            Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Buckler, ArmorMaterialTypes.Leather));
+            s.heroClass = Mathf.Clamp(heroClass, 0, IdleData.Classes - 1);
+            Arrays(s);
+            if (s.heroClass == IdleData.ClassMage)
+            {
+                s.stats = new int[] { 40, 70, 60, 50, 45, 45, 50, 50 };
+                s.skills[(int)DFCareer.Skills.LongBlade] = 10;
+                s.skills[(int)DFCareer.Skills.BluntWeapon] = 25;
+                s.skills[(int)DFCareer.Skills.Destruction] = 35;
+                s.skills[(int)DFCareer.Skills.Restoration] = 30;
+                s.skills[(int)DFCareer.Skills.Alteration] = 25;
+                s.skills[(int)DFCareer.Skills.Thaumaturgy] = 20;
+                s.skills[(int)DFCareer.Skills.Dodging] = 20;
+                s.spellsKnown[1] = 1;
+                s.spellsKnown[IdleData.SpellHealIndex] = 1;
+                s.ruleIf = new int[] { IdleData.IfHealth30, IdleData.IfHealth50, IdleData.IfHealth15, IdleData.IfAlways, IdleData.IfCannotHurt, IdleData.IfOff };
+                s.ruleDo = new int[] { IdleData.DoPotion, IdleData.DoHeal, IdleData.DoFlee, IdleData.DoCast, IdleData.DoFlee, IdleData.DoAttack };
+                Equip(w, ItemBuilder.CreateWeapon(Weapons.Staff, WeaponMaterialTypes.Iron));
+                Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Cuirass, ArmorMaterialTypes.Leather));
+                Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Greaves, ArmorMaterialTypes.Leather));
+                Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Boots, ArmorMaterialTypes.Leather));
+                s.gold = 150;
+            }
+            else if (s.heroClass == IdleData.ClassRogue)
+            {
+                s.stats = new int[] { 45, 45, 45, 65, 50, 45, 60, 55 };
+                s.skills[(int)DFCareer.Skills.LongBlade] = 15;
+                s.skills[(int)DFCareer.Skills.ShortBlade] = 35;
+                s.skills[(int)DFCareer.Skills.CriticalStrike] = 30;
+                s.skills[(int)DFCareer.Skills.Dodging] = 30;
+                s.poisonsKnown = 1;
+                Equip(w, ItemBuilder.CreateWeapon(Weapons.Shortsword, WeaponMaterialTypes.Iron));
+                Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Cuirass, ArmorMaterialTypes.Leather));
+                Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Greaves, ArmorMaterialTypes.Leather));
+                Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Boots, ArmorMaterialTypes.Leather));
+                Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Helm, ArmorMaterialTypes.Leather));
+                Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Gauntlets, ArmorMaterialTypes.Leather));
+                s.gold = 120;
+            }
+            else
+            {
+                Equip(w, ItemBuilder.CreateWeapon(Weapons.Broadsword, WeaponMaterialTypes.Iron));
+                Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Cuirass, ArmorMaterialTypes.Leather));
+                Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Greaves, ArmorMaterialTypes.Leather));
+                Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Boots, ArmorMaterialTypes.Leather));
+                Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Helm, ArmorMaterialTypes.Leather));
+                Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Gauntlets, ArmorMaterialTypes.Leather));
+                Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Left_Pauldron, ArmorMaterialTypes.Leather));
+                Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Right_Pauldron, ArmorMaterialTypes.Leather));
+                Equip(w, ItemBuilder.CreateArmor(g, r, Armor.Buckler, ArmorMaterialTypes.Leather));
+            }
+            s.maxHealth = 25 + IdleData.HitPointsPerLevel;
+            s.health = s.maxHealth;
             Arrays(s);
             Restock(w);
             RefreshBonus(w);
@@ -650,6 +729,8 @@ namespace IdleAdventurer
                 s.clearedFloors = new int[IdleData.DungeonTypes];
             if (s.ingots == null || s.ingots.Length != IdleData.Metals)
                 s.ingots = new int[IdleData.Metals];
+            if (s.spellRanks == null || s.spellRanks.Length != IdleData.SpellKinds)
+                s.spellRanks = new int[IdleData.SpellKinds];
             if (s.souls == null || s.souls.Length != IdleData.SoulTiers)
                 s.souls = new int[IdleData.SoulTiers];
             if (s.gems == null || s.gems.Length != IdleData.GemCodes)
@@ -921,6 +1002,7 @@ namespace IdleAdventurer
             s.runItems = 0;
             s.vein = 0;
             s.miningMetal = 0;
+            Coat(w);
             if (w.record)
                 w.Emit(IdleData.EvInfo, s.heroName + " sets out for " + Destination(s) + ", floors " + s.startFloor + " to " + s.targetFloor);
         }
@@ -1242,12 +1324,16 @@ namespace IdleAdventurer
 
         public static int MaxMagicka(IdleSave s)
         {
-            return IdleData.MaxMagicka(s.stats[IdleData.StatIntelligence], s.level) + s.bonus[IdleData.AffixArcane];
+            int most = IdleData.MaxMagicka(s.stats[IdleData.StatIntelligence], s.level);
+            if (s.heroClass == IdleData.ClassMage)
+                most = most * 3 / 2;
+            return most + s.bonus[IdleData.AffixArcane];
         }
 
         public static int Cost(IdleSave s, int spell)
         {
-            return Mathf.Max(1, IdleData.SpellCost(spell, s.level, s.skills[IdleData.SpellSchool[spell]]) * (100 - s.bonus[IdleData.AffixSorcery]) / 100);
+            int cost = IdleData.SpellCost(spell, s.level, s.skills[IdleData.SpellSchool[spell]]) * (100 - s.bonus[IdleData.AffixSorcery]) / 100;
+            return Mathf.Max(1, cost * (100 - 4 * Rank(s, spell)) / 100);
         }
 
         // Percent of a spell's damage an enemy takes, from its career's tolerances.
@@ -1277,6 +1363,160 @@ namespace IdleAdventurer
         static int Magnitude(IdleSave s, int low, int high, int levelLow, int levelHigh, int level)
         {
             return Range(s, low, high) + Range(s, levelLow * level, levelHigh * level);
+        }
+
+        // A spell's rank from 0 (I) to 9 (X), and its strength in percent.
+        public static int Rank(IdleSave s, int spell)
+        {
+            return (s.spellRanks != null && spell >= 0 && spell < s.spellRanks.Length) ? s.spellRanks[spell] : 0;
+        }
+
+        public static int RankPower(IdleSave s, int spell)
+        {
+            return 100 + 15 * Rank(s, spell);
+        }
+
+        public static string CannotRankUp(IdleSave s, int spell)
+        {
+            if (s.spellsKnown[spell] == 0)
+                return "Learn the spell first.";
+            if (Rank(s, spell) + 1 >= IdleData.RankTop)
+                return IdleData.SpellNames[spell] + " is at rank X, the highest.";
+            if (IdleData.RankGold(spell, Rank(s, spell) + 1) > s.gold)
+                return "Not enough gold: rank " + Roman(Rank(s, spell) + 2) + " costs " + IdleData.RankGold(spell, Rank(s, spell) + 1) + ".";
+            return null;
+        }
+
+        public static bool RankUp(IdleSave s, int spell)
+        {
+            if (CannotRankUp(s, spell) != null)
+                return false;
+            int cost = IdleData.RankGold(spell, Rank(s, spell) + 1);
+            s.gold -= cost;
+            s.spellRankGold += cost;
+            s.spellRanks[spell]++;
+            return true;
+        }
+
+        public static string Roman(int n)
+        {
+            string[] r = { "", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X" };
+            return r[Mathf.Clamp(n, 0, 10)];
+        }
+
+        // At home (under auto-smith): the cheapest rank for a known spell the orders use, while it costs at most a
+        // quarter of the gold. Mages put more in: up to half.
+        static int AutoRank(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            if (s.noAutoSmith)
+                return 0;
+            long before = s.spellRankGold;
+            for (int guard = 0; guard < 40; guard++)
+            {
+                int best = -1, bestCost = int.MaxValue;
+                for (int k = 0; k < IdleData.SpellKinds; k++)
+                    if (Used(s, k) && CannotRankUp(s, k) == null && IdleData.RankGold(k, Rank(s, k) + 1) < bestCost)
+                    {
+                        best = k;
+                        bestCost = IdleData.RankGold(k, Rank(s, k) + 1);
+                    }
+                long share = (s.heroClass == IdleData.ClassMage) ? 2 : 4;
+                if (best < 0 || bestCost * share > s.gold || !RankUp(s, best))
+                    break;
+            }
+            return (int)(s.spellRankGold - before);
+        }
+
+        // Whether the orders can cast a spell: damage spells through "cast a damage spell", the others by name.
+        static bool Used(IdleSave s, int spell)
+        {
+            if (s.spellsKnown[spell] == 0)
+                return false;
+            int want = (IdleData.SpellKind[spell] == IdleData.SpellDamage) ? IdleData.DoCast
+                : (spell == IdleData.SpellHealIndex) ? IdleData.DoHeal : (spell == IdleData.SpellShieldIndex) ? IdleData.DoShield
+                : (spell == IdleData.SpellParalysisIndex) ? IdleData.DoParalyse : IdleData.DoWard;
+            if (spell == IdleData.SpellHealIndex)
+                return true;            // Heal is also cast between fights
+            for (int i = 0; i < s.ruleDo.Length; i++)
+                if (s.ruleDo[i] == want && s.ruleIf[i] != IdleData.IfOff)
+                    return true;
+            return false;
+        }
+
+        // ------------------------------------------------------------------ poisons
+
+        static bool ShrugsPoison(int id)
+        {
+            return id == (int)MobileTypes.SkeletalWarrior || id == (int)MobileTypes.Zombie || id == (int)MobileTypes.Ghost
+                || id == (int)MobileTypes.Mummy || id == (int)MobileTypes.Wraith || id == (int)MobileTypes.Vampire
+                || id == (int)MobileTypes.VampireAncient || id == (int)MobileTypes.Lich || id == (int)MobileTypes.AncientLich
+                || id == (int)MobileTypes.Gargoyle || id == (int)MobileTypes.FireAtronach || id == (int)MobileTypes.IronAtronach
+                || id == (int)MobileTypes.FleshAtronach || id == (int)MobileTypes.IceAtronach || IsDaedra(id);
+        }
+
+        public static int PoisonChance(IdleSave s)
+        {
+            return (s.heroClass == IdleData.ClassRogue) ? IdleData.RoguePoisonChance : IdleData.PoisonChance;
+        }
+
+        public static int PoisonHit(IdleSave s, int tier)
+        {
+            return IdleData.PoisonDamage[tier] * (100 + 5 * s.floor) / 100;
+        }
+
+        public static string CannotLearnPoison(IdleSave s, int tier)
+        {
+            if (tier < s.poisonsKnown)
+                return IdleData.PoisonNames[tier] + " is known already.";
+            if (tier > s.poisonsKnown)
+                return "Learn " + IdleData.PoisonNames[s.poisonsKnown] + " first.";
+            if (IdleData.PoisonRecipe[tier] > s.gold)
+                return "Not enough gold: the recipe costs " + IdleData.PoisonRecipe[tier] + ".";
+            return null;
+        }
+
+        public static bool LearnPoison(IdleSave s, int tier)
+        {
+            if (CannotLearnPoison(s, tier) != null)
+                return false;
+            s.gold -= IdleData.PoisonRecipe[tier];
+            s.alchemyGold += IdleData.PoisonRecipe[tier];
+            s.poisonsKnown++;
+            return true;
+        }
+
+        // Before a run: a vial of the best known poison the purse allows (keeping twice its price), else none.
+        static void Coat(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            s.coated = 0;
+            if (s.noPoison)
+                return;
+            for (int tier = s.poisonsKnown - 1; tier >= 0; tier--)
+                if (s.gold >= IdleData.PoisonVial[tier] * 3)
+                {
+                    s.gold -= IdleData.PoisonVial[tier];
+                    s.alchemyGold += IdleData.PoisonVial[tier];
+                    s.coated = tier + 1;
+                    s.vialsUsed++;
+                    if (w.record)
+                        w.Emit(IdleData.EvInfo, s.heroName + " coats the weapon with " + IdleData.PoisonNames[tier]);
+                    return;
+                }
+        }
+
+        // At home (under auto-smith): the next recipe once a run's worth of its vials is affordable many times over.
+        static void AutoAlchemy(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            if (s.noAutoSmith || s.noPoison || s.poisonsKnown >= IdleData.PoisonKinds)
+                return;
+            if (s.poisonsKnown == 0 && s.heroClass != IdleData.ClassRogue)
+                return;             // only rogues take up poison on their own
+            int next = s.poisonsKnown;
+            if ((long)IdleData.PoisonRecipe[next] * 2 <= s.gold && IdleData.PoisonVial[next] * 40 <= s.gold)
+                LearnPoison(s, next);
         }
 
         // Which spell an order means right now, or -1 when it cannot be cast (unknown, no magicka, silenced, pointless).
@@ -1345,8 +1585,8 @@ namespace IdleAdventurer
                 case IdleData.SpellDamage:
                 {
                     int element = IdleData.SpellElement[spell];
-                    int damage = Magnitude(s, IdleData.SpellBaseLow[spell], IdleData.SpellBaseHigh[spell], IdleData.SpellLevelLow[spell],
-                        IdleData.SpellLevelHigh[spell], s.level) * Tolerance(e, element) / 100;
+                    int damage = RankPower(s, spell) * Magnitude(s, IdleData.SpellBaseLow[spell], IdleData.SpellBaseHigh[spell], IdleData.SpellLevelLow[spell],
+                        IdleData.SpellLevelHigh[spell], s.level) / 100 * Tolerance(e, element) / 100;
                     if ((s.fightStatus & IdleData.StatusEnemyWard) != 0)
                         damage /= 2;
                     s.enemyHealth -= damage;
@@ -1359,8 +1599,8 @@ namespace IdleAdventurer
                     break;
                 }
                 case IdleData.SpellShieldKind:
-                    s.heroShield = Magnitude(s, IdleData.SpellBaseLow[spell], IdleData.SpellBaseHigh[spell], IdleData.SpellLevelLow[spell],
-                        IdleData.SpellLevelHigh[spell], s.level);
+                    s.heroShield = RankPower(s, spell) * Magnitude(s, IdleData.SpellBaseLow[spell], IdleData.SpellBaseHigh[spell], IdleData.SpellLevelLow[spell],
+                        IdleData.SpellLevelHigh[spell], s.level) / 100;
                     if (w.record)
                         w.EmitSpell(IdleData.EvCastSelf, s.heroName + " casts Shield (absorbs " + s.heroShield + ")", 0, IdleData.ElementMagic);
                     break;
@@ -1394,8 +1634,8 @@ namespace IdleAdventurer
             s.magicka -= Cost(s, spell);
             s.spellsCast++;
             Tally(w, IdleData.SpellSchool[spell]);
-            int heal = Mathf.Max(1, Magnitude(s, IdleData.SpellBaseLow[spell], IdleData.SpellBaseHigh[spell], IdleData.SpellLevelLow[spell],
-                IdleData.SpellLevelHigh[spell], s.level));
+            int heal = Mathf.Max(1, RankPower(s, spell) * Magnitude(s, IdleData.SpellBaseLow[spell], IdleData.SpellBaseHigh[spell], IdleData.SpellLevelLow[spell],
+                IdleData.SpellLevelHigh[spell], s.level) / 100);
             s.health = Mathf.Min(s.maxHealth, s.health + heal);
             if (w.record)
                 w.EmitSpell(IdleData.EvCastSelf, s.heroName + " casts Heal (" + s.health + "/" + s.maxHealth + ")", heal, IdleData.ElementMagic);
@@ -1503,8 +1743,8 @@ namespace IdleAdventurer
         public static string SpellText(IdleSave s, int spell)
         {
             int level = Mathf.Max(1, s.level);
-            int low = IdleData.SpellBaseLow[spell] + IdleData.SpellLevelLow[spell] * level;
-            int high = IdleData.SpellBaseHigh[spell] + IdleData.SpellLevelHigh[spell] * level;
+            int low = (IdleData.SpellBaseLow[spell] + IdleData.SpellLevelLow[spell] * level) * RankPower(s, spell) / 100;
+            int high = (IdleData.SpellBaseHigh[spell] + IdleData.SpellLevelHigh[spell] * level) * RankPower(s, spell) / 100;
             switch (IdleData.SpellKind[spell])
             {
                 case IdleData.SpellDamage: return low + "-" + high + " " + IdleData.ElementNames[IdleData.SpellElement[spell]] + " damage";
@@ -1655,11 +1895,18 @@ namespace IdleAdventurer
                 damage = damage * 3 / 2;
             if (damage < 1)
                 damage = 0;
+            int poisoned = 0;
+            if (s.coated > 0 && weapon != null && !ShrugsPoison(s.enemyId) && Roll(s, PoisonChance(s)))
+            {
+                poisoned = PoisonHit(s, s.coated - 1);
+                damage += poisoned;
+                s.poisonHits++;
+            }
 
             s.enemyHealth -= damage;
             if (w.record)
                 w.Emit(IdleData.EvHeroHit, s.heroName + (power ? " power-attacks the " : " hits the ") + Foe(s, e) + " for " + damage
-                    + ((weapon == null && w.gear[IdleData.SlotWeapon] != null) ? " with bare hands" : ""), damage);
+                    + ((weapon == null && w.gear[IdleData.SlotWeapon] != null) ? " with bare hands" : "") + ((poisoned > 0) ? " (" + poisoned + " poison)" : ""), damage);
             if (s.enemyHealth <= 0)
                 Kill(w, e);
         }
@@ -3448,6 +3695,8 @@ namespace IdleAdventurer
             int smith = AutoSmith(w);
             smith += AutoJewel(w);
             smith += AutoEnchant(w);
+            smith += AutoRank(w);
+            AutoAlchemy(w);
 
             Restock(w);
             RefreshBonus(w);
@@ -3468,7 +3717,7 @@ namespace IdleAdventurer
                     gear += (gear.Length > 0 ? ", " : "") + Name(w.gear[i]);
             return "level " + s.level + ", health " + s.maxHealth + ", gold " + s.gold + ", runs " + s.expeditions + " (cleared " + s.clears
                 + ", retreated " + s.retreats + ", died " + s.deaths + "), kills " + s.kills + ", deepest floor " + s.deepestFloor
-                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", spells " + s.spellsCast + "/" + s.enemySpellsCast + ", enchanted items " + s.affixesFound + ", levels bought " + s.levelsBought + ", reforges " + s.reforges + ", smith gold " + s.smithGold + ", veins " + s.veinsMined + ", ore " + s.oreMined + ", smelted " + s.ingotsSmelted + ", salvaged " + s.ingotsSalvaged + ", picks broken " + s.picksBroken + ", gems " + s.gemsFound + ", sockets added " + s.socketsAdded + ", gem upgrades " + s.gemUpgrades + ", jeweller gold " + s.jewelGold + ", souls " + s.soulsTrapped + ", enchanted " + s.enchantsAdded + ", enchanter gold " + s.enchantGold + ", " + PickName(s) + ", hearts " + s.hearts + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
+                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", spells " + s.spellsCast + "/" + s.enemySpellsCast + ", enchanted items " + s.affixesFound + ", levels bought " + s.levelsBought + ", reforges " + s.reforges + ", smith gold " + s.smithGold + ", veins " + s.veinsMined + ", ore " + s.oreMined + ", smelted " + s.ingotsSmelted + ", salvaged " + s.ingotsSalvaged + ", picks broken " + s.picksBroken + ", gems " + s.gemsFound + ", sockets added " + s.socketsAdded + ", gem upgrades " + s.gemUpgrades + ", jeweller gold " + s.jewelGold + ", souls " + s.soulsTrapped + ", enchanted " + s.enchantsAdded + ", enchanter gold " + s.enchantGold + ", " + IdleData.ClassNames[s.heroClass] + ", spell ranks gold " + s.spellRankGold + ", poisons " + s.poisonsKnown + " (" + s.poisonHits + " hits, alchemy gold " + s.alchemyGold + ")" + ", " + PickName(s) + ", hearts " + s.hearts + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
                 + (long)(s.goldEarned / Mathf.Max(0.05f, s.clock / 36000f)) + " | " + gear;
         }
 
@@ -3485,7 +3734,12 @@ namespace IdleAdventurer
 
         public static IdleWorld Simulate(int seed, int expeditions, bool deeper, int dungeonType)
         {
-            IdleWorld w = NewHero(seed, "Test");
+            return Simulate(seed, expeditions, deeper, dungeonType, IdleData.ClassWarrior);
+        }
+
+        public static IdleWorld Simulate(int seed, int expeditions, bool deeper, int dungeonType, int heroClass)
+        {
+            IdleWorld w = NewHero(seed, "Test", heroClass);
             if (dungeonType >= 0)
                 w.s.dungeonType = dungeonType;
             w.s.autoRepeat = 1;

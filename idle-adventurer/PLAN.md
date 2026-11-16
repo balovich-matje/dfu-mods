@@ -463,7 +463,24 @@ dungeons, into power. Every one is a ladder whose next step costs more than the 
   rolling anew stays manual.
 - Balance (200 runs): enchanter 0.4-1.2 M; gold left 1.1 M stronghold, 129 k natural caves, 76 k volcanic.
 
-### 13.13 Phase order
+### 13.13 Phase 5 as built (0.14.0)
+
+- Callings: warrior (as before), mage (Int 70, staff, three leather pieces, x1.5 magicka, knows Shock, Wizard's Fire
+  and Heal, orders cast first), rogue (Agi 65, Spd 60, short sword, six leather pieces, poison lands 45% instead of
+  25%, knows Nux Vomica). A brand-new hero picks one when the hub first opens; Shift+N asks again. Old heroes are
+  warriors.
+- Spell ranks I-X on the Spells screen (U): +15% strength and -4% cost a rank, (price + 250) x rank^2 gold.
+  Auto-smith ranks spells the orders use with up to a quarter of the gold (mages half).
+- Alchemist (A in the hub): six poisons (Nux Vomica to Magebane), recipe once (300 to 150,000), a vial before each
+  run (40 to 5,500) coats the weapon; a landed poison adds its damage (+5% per floor). Undead, daedra, atronachs and
+  gargoyles are immune. Auto-smith lets rogues learn the next recipe when it is well within means.
+- Balance: first 10 runs warrior 0.3 deaths / floor 3.8, mage 0.5 / 10.7 (spells carry early), rogue 0.4 / 2.6 (slow
+  start). 200 runs: warrior floor 43, mage floor 40 with 82 deaths and level 14, rogue floor 46 and 1.55 M gold
+  (poisons took 0.78 M).
+- Not done: jewellery and robes with sockets, staffs as their own line, lockpicks and chests. Mages still wear any
+  armor the sim finds best; there is no casting penalty for plate.
+
+### 13.14 Phase order
 
 1. Reinforcement and reforging, with ingots bought from the smith only; rarity replaced, saves migrated.
 2. Mining, pickaxes, the materials pouch and the smelter queue.

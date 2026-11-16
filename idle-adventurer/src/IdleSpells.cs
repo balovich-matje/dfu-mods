@@ -13,7 +13,7 @@ namespace IdleAdventurer
 {
     public class IdleSpellsWindow : DaggerfallPopupWindow
     {
-        const int BtnLearn = 1, BtnBack = 2;
+        const int BtnLearn = 1, BtnBack = 2, BtnRank = 3;
 
         SpellsCanvas canvas;
         int row;
@@ -77,6 +77,19 @@ namespace IdleAdventurer
                 row = Mathf.Max(0, row - 1);
             if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter) || click == BtnLearn)
                 Learn(w);
+            if (Input.GetKeyDown(KeyCode.U) || click == BtnRank)
+            {
+                string why = IdleSim.CannotRankUp(w.s, row);
+                if (why != null)
+                    note = why;
+                else
+                {
+                    IdleSim.RankUp(w.s, row);
+                    note = IdleData.SpellNames[row] + " is now rank " + IdleSim.Roman(IdleSim.Rank(w.s, row) + 1) + ".";
+                    DaggerfallUI.Instance.PlayOneShot(SoundClips.GoldPieces);
+                    IdleStore.Save();
+                }
+            }
             if (click == BtnBack)
             {
                 CloseWindow();
@@ -149,7 +162,7 @@ namespace IdleAdventurer
                         IdleUi.Box(new Rect(cell.x, cell.yMax - 2f, cell.width, 2f), IdleUi.Line);
                     bool known = s.spellsKnown[i] != 0;
                     float ty = cell.y + (cell.height - line * 0.7f) / 2f;
-                    IdleUi.Text(IdleData.SpellNames[i], cell.x + line * 0.4f, ty, sc * 0.95f, known ? IdleUi.White : IdleUi.Muted);
+                    IdleUi.Text(IdleData.SpellNames[i] + (known ? " " + IdleSim.Roman(IdleSim.Rank(s, i) + 1) : ""), cell.x + line * 0.4f, ty, sc * 0.95f, known ? IdleUi.White : IdleUi.Muted);
                     string school = ((DFCareer.Skills)IdleData.SpellSchool[i]).ToString();
                     IdleUi.Text(school, cell.x + listW * 0.38f, ty, sc * 0.85f, IdleUi.Muted);
                     string right = known ? "known" : IdleData.SpellPrice[i] + " gold";
@@ -175,7 +188,10 @@ namespace IdleAdventurer
                     "At level " + s.level + ": " + IdleSim.SpellText(s, k) + ".",
                     "Costs " + IdleSim.Cost(s, k) + " magicka now. " + ((DFCareer.Skills)IdleData.SpellSchool[k]) + " is " + skill
                         + "; every cast trains it, and a higher skill makes the spell cheaper.",
-                    (s.spellsKnown[k] != 0) ? "Known." : "Sold by the Mages Guild for " + IdleData.SpellPrice[k] + " gold.",
+                    (s.spellsKnown[k] == 0) ? "Sold by the Mages Guild for " + IdleData.SpellPrice[k] + " gold."
+                        : (IdleSim.Rank(s, k) + 1 >= IdleData.RankTop) ? "Known, rank X: as strong as it gets."
+                        : "Known, rank " + IdleSim.Roman(IdleSim.Rank(s, k) + 1) + ". Rank " + IdleSim.Roman(IdleSim.Rank(s, k) + 2) + " (U): " + IdleData.RankGold(k, IdleSim.Rank(s, k) + 1)
+                          + " gold, +15% strength and 4% cheaper. Auto-smith also pays for ranks of spells the orders use.",
                     "",
                     "Use spells through the orders (O in the hub): cast a damage spell, cast Heal, Shield, Paralysis or Spell Shield. Between fights the hero casts Heal before drinking potions.",
                     "",
@@ -189,6 +205,7 @@ namespace IdleAdventurer
                 float bx = x;
                 Buttons.Begin();
                 bx += Buttons.Add(BtnLearn, "Learn (Enter)", bx, bottom, tall, false) + gap;
+                bx += Buttons.Add(BtnRank, "Rank up (U)", bx, bottom, tall, false) + gap;
                 Buttons.Add(BtnBack, "Back (Esc)", bx, bottom, tall, false);
             }
 
