@@ -640,7 +640,12 @@ namespace IdleAdventurer
                 eye.transform.rotation = want;
             else
             {
-                eye.transform.rotation = Quaternion.Slerp(eye.transform.rotation, want, Mathf.Clamp01(dt * 4f));
+                // Turn quickly: most of the way at once, and never slower than a brisk head turn, so the hero does
+                // not walk backwards while the view swings round from the last fight.
+                float angle = Quaternion.Angle(eye.transform.rotation, want);
+                float rate = faceEnemy ? 8f : 12f;
+                float turn = Mathf.Max(angle * (1f - Mathf.Exp(-rate * dt)), 270f * dt);
+                eye.transform.rotation = Quaternion.RotateTowards(eye.transform.rotation, want, turn);
                 // Step up and down stairs a little softly, as the game's own player does.
                 here.y = Mathf.Lerp(eye.transform.position.y, here.y, Mathf.Clamp01(dt * 14f));
             }
@@ -1225,7 +1230,7 @@ namespace IdleAdventurer
             {
                 scene.RestEnemy();
             }
-            scene.PlaceEye(distance, direction, fighting || scene.Falling, Mathf.Min(0.1f, Time.unscaledDeltaTime) * Mathf.Min(4, IdleClock.Speed));
+            scene.PlaceEye(distance, direction, fighting || scene.Falling, Mathf.Min(0.1f, Time.unscaledDeltaTime) * Mathf.Min(16, IdleClock.Speed));
         }
 
         // The game's own sounds for what just happened. Faster speeds play fewer of them.
