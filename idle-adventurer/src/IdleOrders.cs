@@ -15,7 +15,8 @@ namespace IdleAdventurer
         const int BtnBack = 1, BtnReset = 2, BtnLess = 3, BtnMore = 4;
         const int RowRetreat = IdleData.RuleSlots;
         const int RowPotions = IdleData.RuleSlots + 1;
-        const int Rows = IdleData.RuleSlots + 2;
+        const int RowPicks = IdleData.RuleSlots + 2;
+        const int Rows = IdleData.RuleSlots + 3;
         static readonly int[] retreatSteps = { 0, 10, 20, 25, 30, 35, 40, 50, 60, 70 };
 
         OrdersCanvas canvas;
@@ -66,6 +67,10 @@ namespace IdleAdventurer
             else if (row == RowPotions)
             {
                 s.potionsToCarry = Mathf.Clamp(s.potionsToCarry + by, 0, 20);
+            }
+            else if (row == RowPicks)
+            {
+                s.lockpicksToCarry = Mathf.Clamp(s.lockpicksToCarry + by, 0, 20);
             }
             IdleStore.Save();
         }
@@ -125,6 +130,7 @@ namespace IdleAdventurer
                 s.ruleDo = (int[])IdleData.DefaultDo.Clone();
                 s.retreatPercent = 35;
                 s.potionsToCarry = 3;
+                s.lockpicksToCarry = 3;
                 IdleStore.Save();
             }
             if (click == BtnBack)
@@ -223,6 +229,10 @@ namespace IdleAdventurer
                 Cell(RowPotions * 2, "Carry " + s.potionsToCarry + " healing potions (bought in town for " + IdleData.PotionPrice(s.level) + " gold each)",
                     new Rect(x, y, listW, rowTall - 4f), sc * 0.9f, Owner.row == RowPotions, IdleUi.White);
                 y += rowTall;
+                Cell(RowPicks * 2, (s.lockpicksToCarry == 0) ? "Carry no lockpicks: leave locked chests shut"
+                    : "Carry " + s.lockpicksToCarry + " lockpicks for locked chests (" + IdleData.LockpickPrice + " gold each, " + IdleSim.OpenChance(s, IdleData.LockLevel(Mathf.Max(1, s.targetFloor))) + "% a try at floor " + Mathf.Max(1, s.targetFloor) + ")",
+                    new Rect(x, y, listW, rowTall - 4f), sc * 0.9f, Owner.row == RowPicks, IdleUi.White);
+                y += rowTall;
 
                 // ---- what the actions do
                 Rect card = new Rect(cardX, top, cardW, bottom - line * 0.5f - top);
@@ -243,7 +253,9 @@ namespace IdleAdventurer
                     "Champions have one trait, bosses two:",
                     "Swift attacks more often. Armoured is harder to hit. Regenerating heals as it fights. Venomous and Enraged hit harder. Vampiric heals from its hits.",
                     "",
-                    "Potions: " + s.potions + " carried now. Magicka " + s.magicka + "/" + IdleSim.MaxMagicka(s) + ". You have " + s.gold + " gold.",
+                    "Locked chests: a third of floors hold one. With the fights done the hero tries the lock up to three times; a failed try breaks a pick. Lockpicking and Agility decide, and inside are gold, often a gem and sometimes gear.",
+                    "",
+                    "Potions: " + s.potions + " carried now. Lockpicks: " + s.lockpicks + ". Magicka " + s.magicka + "/" + IdleSim.MaxMagicka(s) + ". You have " + s.gold + " gold.",
                 };
                 for (int i = 0; i < help.Length; i++)
                     cy = Wrap(help[i], cx, cy, cw, sc * 0.85f, line * 0.9f, (i >= 7) ? IdleUi.Muted : IdleUi.White);

@@ -1393,11 +1393,13 @@ namespace IdleAdventurer
                         IdleUi.Centred(name, W * 0.5f, pad, sc * 1.2f, IdleSim.IsChampion(s) ? IdleUi.TraitColor(s.enemyTraits) : IdleUi.Gold);
                         IdleUi.Bar(new Rect((W - bw) / 2f, pad + line * 1.25f, bw, Mathf.Round(line * 0.35f)), (float)s.enemyHealth / Mathf.Max(1, s.enemyMaxHealth), IdleUi.Line);
                     }
-                    IdleUi.Text("Floor " + s.floor + " of " + s.targetFloor + "    " + ((s.miningMetal > 0) ? "Mining " + IdleData.OreNames[s.miningMetal - 1].ToLower() : s.roomsLeft + " fight(s) left"), pad, pad, sc, IdleUi.Gold);
-                    if (s.miningMetal > 0 && s.phase == IdleData.PhaseExplore)
+                    IdleUi.Text("Floor " + s.floor + " of " + s.targetFloor + "    " + ((s.miningMetal > 0) ? "Mining " + IdleData.OreNames[s.miningMetal - 1].ToLower()
+                        : (s.picking > 0) ? "Picking a lock" : s.roomsLeft + " fight(s) left"), pad, pad, sc, IdleUi.Gold);
+                    if ((s.miningMetal > 0 || s.picking > 0) && s.phase == IdleData.PhaseExplore)
                     {
-                        // How far through the vein: a bar under the crosshair, like the travel bar.
-                        string what = "Mining " + IdleData.OreNames[s.miningMetal - 1].ToLower() + "...";
+                        // How far through the vein or the lock: a bar under the crosshair, like the travel bar.
+                        string what = (s.miningMetal > 0) ? "Mining " + IdleData.OreNames[s.miningMetal - 1].ToLower() + "..."
+                            : "Picking a lock (" + IdleSim.OpenChance(s, s.picking) + "% a try, " + s.lockpicks + " picks)...";
                         float bw = Mathf.Round(W * 0.26f);
                         IdleUi.Centred(what, W * 0.5f, H * 0.62f, sc * 1.1f, IdleUi.Gold);
                         IdleUi.Bar(new Rect((W - bw) / 2f, H * 0.62f + line * 1.3f, bw, Mathf.Round(line * 0.35f)),

@@ -551,3 +551,15 @@ about twice as often over 100 runs as the warriors and thieves and levels slower
 - Balance (100 runs): mage group 25-37 deaths (was 33-38), level 11-12; thieves and warriors about as before.
   Determinism checks pass.
 - Still open from phase 5: staffs as their own line, lockpicks and chests.
+
+### 13.19 Lockpicks and locked chests (0.18)
+
+- A third of floors hold a locked chest; its lock level is 1 + floor / 6. Once the floor's fights and vein are done
+  the hero kneels at it (6 + 2 x lock seconds, a "Picking a lock" bar in the view) and tries up to three times. A try
+  opens it with 30 + Lockpicking - 6 x lock + (Agility - 50) / 2 percent (5-95); a failed try breaks a pick.
+- Inside: 15-40 x (floor + 2) gold (Fortune counts), a gem 40% of the time, a piece of gear (weapon, armor or trinket
+  with one enchantment) 25%.
+- Lockpicks cost 25 and are bought when setting out, after the poison and the blessing. The orders screen sets how
+  many to carry (default 3, 0 leaves chests shut). Lockpicking trains on every try and the trainer sells it.
+- Balance (200 runs): 90-150 chests opened, 0.1-0.23 M gold from them; first-run and first-10-run deaths unchanged.
+- Phase 5 is done but for staffs as their own weapon line.

@@ -209,7 +209,7 @@ namespace IdleAdventurer
         // The trainer: one skill point for gold, up to 30 + 3 per level. Trained points do not count toward levels.
         public static readonly int[] TrainSkills = { (int)DFCareer.Skills.LongBlade, (int)DFCareer.Skills.ShortBlade, (int)DFCareer.Skills.Axe,
             (int)DFCareer.Skills.BluntWeapon, (int)DFCareer.Skills.Dodging, (int)DFCareer.Skills.CriticalStrike, (int)DFCareer.Skills.Backstabbing,
-            (int)DFCareer.Skills.Medical, (int)DFCareer.Skills.Destruction, (int)DFCareer.Skills.Restoration, (int)DFCareer.Skills.Alteration };
+            (int)DFCareer.Skills.Medical, (int)DFCareer.Skills.Lockpicking, (int)DFCareer.Skills.Destruction, (int)DFCareer.Skills.Restoration, (int)DFCareer.Skills.Alteration };
         public static int TrainGold(int skill) { return (skill + 1) * (skill + 1) * 3; }
         public static int TrainCap(int level) { return Math.Min(100, 30 + 3 * level); }
 
@@ -253,6 +253,15 @@ namespace IdleAdventurer
         public static int SmeltSeconds(int metal) { return 12 + 6 * metal; }
         public static int SmeltFee(int metal) { return 4 + 6 * metal; }
         public static int RushGold(int metal, int secondsLeft) { return Math.Max(1, secondsLeft * (2 + metal) / 2); }
+        // Locked chests: a third of floors hold one, its lock harder every six floors. Once the fights are done the
+        // hero picks it: each try opens it or breaks a pick (three tries at most). Lockpicking and Agility decide.
+        public const int ChestChance = 33;
+        public const int LockpickPrice = 25;
+        public const int PickTries = 3;
+        public static int LockLevel(int floor) { return 1 + floor / 6; }
+        public static int LockSeconds(int lockLevel) { return 6 + 2 * lockLevel; }
+        public static int OpenChance(int skill, int agility, int lockLevel) { return Math.Max(5, Math.Min(95, 30 + skill - 6 * lockLevel + (agility - 50) / 2)); }
+
         public static bool IsCave(int dungeonType)
         {
             return dungeonType == DungeonMine || dungeonType == DungeonNaturalCave || dungeonType == DungeonVolcanicCaves;
@@ -474,6 +483,12 @@ namespace IdleAdventurer
         public int pickUses;                // veins left before it breaks (a daedric one never does)
         public int vein;                    // this floor's vein: ore metal + 1; 0 none or done
         public int miningMetal;             // ore metal + 1 while mining; 0 not mining
+        public int chest;                   // this floor's locked chest: its lock level; 0 none or done
+        public int picking;                 // the lock level while picking a lock; 0 not picking
+        public int lockpicks;
+        public int lockpicksToCarry = 3;
+        public int chestsFound, chestsOpened, lockpicksBroken;
+        public long chestGold;
         public int[] smeltQueue;            // ingots waiting per metal, already paid for
         public int smeltMetal;              // metal + 1 being smelted; 0 idle
         public int smeltLeft;               // ticks left on the current ingot
@@ -1336,8 +1351,17 @@ namespace IdleAdventurer
             s.runItems = 0;
             s.vein = 0;
             s.miningMetal = 0;
+            s.chest = 0;
+            s.picking = 0;
             Coat(w);
             Bless(w);
+            // Lockpicks are bought on the way out (after the poison and the blessing), so a new hero has them from
+            // the first run.
+            while (s.lockpicks < s.lockpicksToCarry && s.gold >= IdleData.LockpickPrice)
+            {
+                s.gold -= IdleData.LockpickPrice;
+                s.lockpicks++;
+            }
             if (w.record)
                 w.Emit(IdleData.EvInfo, s.heroName + " sets out for " + Destination(s) + ", floors " + s.startFloor + " to " + s.targetFloor);
         }
@@ -1382,8 +1406,8 @@ namespace IdleAdventurer
                     if (s.phase == IdleData.PhaseExplore)
                     {
                         Rest(s, step);
-                        if (s.miningMetal == 0)
-                            s.floorTicks += step;       // the hero stands still while mining
+                        if (s.miningMetal == 0 && s.picking == 0)
+                            s.floorTicks += step;       // the hero stands still while mining or picking a lock
                     }
                     if (s.phaseLeft <= 0)
                         PhaseEnds(w);
@@ -1435,6 +1459,7 @@ namespace IdleAdventurer
                 s.roomsLeft = IdleData.RoomsOnFloor(s.floor);
                 Explore(s);
                 RollVein(s);
+                RollChest(s);
                 if (w.record)
                     w.Emit(IdleData.EvFloor, (s.floor > 1) ? "Entered the dungeon and went straight down to floor " + s.floor : "Entered the dungeon");
             }
@@ -1443,8 +1468,15 @@ namespace IdleAdventurer
                 Tally(w, (int)DFCareer.Skills.Medical);
                 if (s.miningMetal > 0)
                     FinishMining(w);
-                else if (s.recall == 0 && s.roomsLeft <= 0 && s.vein > 0 && StartMining(w))
-                    return;
+                else if (s.picking > 0)
+                    FinishPicking(w);
+                if (s.recall == 0 && s.roomsLeft <= 0)
+                {
+                    if (s.vein > 0 && StartMining(w))
+                        return;
+                    if (s.chest > 0 && StartPicking(w))
+                        return;
+                }
                 if (s.recall != 0)
                 {
                     s.retreats++;
@@ -1470,6 +1502,7 @@ namespace IdleAdventurer
                     s.roomsLeft = IdleData.RoomsOnFloor(s.floor);
                     Explore(s);
                     RollVein(s);
+                    RollChest(s);
                     if (w.record)
                         w.Emit(IdleData.EvFloor, "Down to floor " + s.floor);
                 }
@@ -1827,6 +1860,8 @@ namespace IdleAdventurer
             if (skill == (int)DFCareer.Skills.Dodging || skill == (int)DFCareer.Skills.CriticalStrike || skill == (int)DFCareer.Skills.Medical)
                 return true;
             if (skill == (int)DFCareer.Skills.Backstabbing && s.poisonsKnown > 0 && !s.noPoison)
+                return true;
+            if (skill == (int)DFCareer.Skills.Lockpicking && s.lockpicksToCarry > 0)
                 return true;
             for (int k = 0; k < IdleData.SpellKinds; k++)
                 if (IdleData.SpellSchool[k] == skill && Used(s, k))
@@ -2724,6 +2759,81 @@ namespace IdleAdventurer
                     s.pick = 0;
                     s.picksBroken++;
                 }
+            }
+        }
+
+        // ------------------------------------------------------------------ locked chests
+
+        static void RollChest(IdleSave s)
+        {
+            s.chest = Roll(s, IdleData.ChestChance) ? IdleData.LockLevel(s.floor) : 0;
+        }
+
+        public static int OpenChance(IdleSave s, int lockLevel)
+        {
+            return IdleData.OpenChance(s.skills[(int)DFCareer.Skills.Lockpicking], s.stats[IdleData.StatAgility], lockLevel);
+        }
+
+        // Once a floor's fights (and its vein) are done, the hero kneels at the chest if there are picks. True when
+        // picking starts.
+        static bool StartPicking(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            int lockLevel = s.chest;
+            s.chest = 0;
+            s.chestsFound++;
+            if (s.lockpicks <= 0)
+            {
+                if (w.record)
+                    w.Emit(IdleData.EvMine, "Found a locked chest, but has no lockpicks");
+                return false;
+            }
+            s.picking = lockLevel;
+            s.phase = IdleData.PhaseExplore;
+            s.phaseLeft = IdleData.LockSeconds(lockLevel) * IdleData.TicksPerSecond;
+            s.phaseTotal = s.phaseLeft;
+            if (w.record)
+                w.Emit(IdleData.EvMine, "Picking the lock of a chest (" + OpenChance(s, lockLevel) + "% a try)");
+            return true;
+        }
+
+        static void FinishPicking(IdleWorld w)
+        {
+            IdleSave s = w.s;
+            int lockLevel = s.picking;
+            s.picking = 0;
+            bool open = false;
+            for (int tries = 0; tries < IdleData.PickTries && s.lockpicks > 0 && !open; tries++)
+            {
+                Tally(w, (int)DFCareer.Skills.Lockpicking);
+                if (Roll(s, OpenChance(s, lockLevel)))
+                    open = true;
+                else
+                {
+                    s.lockpicks--;
+                    s.lockpicksBroken++;
+                }
+            }
+            if (!open)
+            {
+                if (w.record)
+                    w.Emit(IdleData.EvMine, (s.lockpicks <= 0) ? "Broke the last lockpick; the chest stays shut" : "Could not open the chest");
+                return;
+            }
+            s.chestsOpened++;
+            int gold = Range(s, 15, 40) * (s.floor + 2) * (100 + s.bonus[IdleData.AffixFortune]) / 100;
+            s.runGold += gold;
+            s.chestGold += gold;
+            if (w.record)
+                w.Emit(IdleData.EvLoot, "Opened the chest: " + gold + " gold");
+            if (Roll(s, 40))
+                FindGem(w);
+            if (Roll(s, 25))
+            {
+                int kind = Range(s, 0, 4);
+                Take(w, Affixed(w, Built(s, delegate (int level) {
+                    return (kind == 0) ? ItemBuilder.CreateRandomWeapon(level) : (kind == 1) ? ItemBuilder.CreateRandomArmor(level, (Genders)s.gender, (Races)s.race)
+                        : NewTrinket(s, IdleData.SlotAmulet + kind - 2); }), 1, false));
             }
         }
 
@@ -4141,6 +4251,7 @@ namespace IdleAdventurer
                 bought++;
             }
 
+
             while (s.soulGemsEmpty < s.soulGemsToCarry && s.gold >= IdleData.SoulGemPrice * 3)
             {
                 s.gold -= IdleData.SoulGemPrice;
@@ -4191,7 +4302,7 @@ namespace IdleAdventurer
                     gear += (gear.Length > 0 ? ", " : "") + Name(w.gear[i]);
             return "level " + s.level + ", health " + s.maxHealth + ", gold " + s.gold + ", runs " + s.expeditions + " (cleared " + s.clears
                 + ", retreated " + s.retreats + ", died " + s.deaths + "), kills " + s.kills + ", deepest floor " + s.deepestFloor
-                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", spells " + s.spellsCast + "/" + s.enemySpellsCast + ", enchanted items " + s.affixesFound + ", levels bought " + s.levelsBought + ", reforges " + s.reforges + ", smith gold " + s.smithGold + ", veins " + s.veinsMined + ", ore " + s.oreMined + ", smelted " + s.ingotsSmelted + ", salvaged " + s.ingotsSalvaged + ", picks broken " + s.picksBroken + ", gems " + s.gemsFound + ", sockets added " + s.socketsAdded + ", gem upgrades " + s.gemUpgrades + ", jeweller gold " + s.jewelGold + ", souls " + s.soulsTrapped + ", enchanted " + s.enchantsAdded + ", enchanter gold " + s.enchantGold + ", " + CallingName(s) + ", spell ranks gold " + s.spellRankGold + ", poisons " + s.poisonsKnown + " (" + s.poisonHits + " hits, alchemy gold " + s.alchemyGold + "), temple " + s.templeGold + ", trained " + s.pointsTrained + " for " + s.trainerGold + ", house " + s.house + " (" + s.houseGold + ")" + ", " + PickName(s) + ", hearts " + s.hearts + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
+                + ", fled " + s.fled + ", champions " + s.championsKilled + ", bosses " + s.bossesKilled + ", potions " + s.potionsDrunk + ", spells " + s.spellsCast + "/" + s.enemySpellsCast + ", enchanted items " + s.affixesFound + ", levels bought " + s.levelsBought + ", reforges " + s.reforges + ", smith gold " + s.smithGold + ", veins " + s.veinsMined + ", ore " + s.oreMined + ", smelted " + s.ingotsSmelted + ", salvaged " + s.ingotsSalvaged + ", picks broken " + s.picksBroken + ", chests " + s.chestsOpened + "/" + s.chestsFound + " (" + s.chestGold + " gold, " + s.lockpicksBroken + " lockpicks broken)" + ", gems " + s.gemsFound + ", sockets added " + s.socketsAdded + ", gem upgrades " + s.gemUpgrades + ", jeweller gold " + s.jewelGold + ", souls " + s.soulsTrapped + ", enchanted " + s.enchantsAdded + ", enchanter gold " + s.enchantGold + ", " + CallingName(s) + ", spell ranks gold " + s.spellRankGold + ", poisons " + s.poisonsKnown + " (" + s.poisonHits + " hits, alchemy gold " + s.alchemyGold + "), temple " + s.templeGold + ", trained " + s.pointsTrained + " for " + s.trainerGold + ", house " + s.house + " (" + s.houseGold + ")" + ", " + PickName(s) + ", hearts " + s.hearts + ", left behind " + s.leftBehind + ", time " + Hours(s) + " h, gold earned per hour "
                 + (long)(s.goldEarned / Mathf.Max(0.05f, s.clock / 36000f)) + " | " + gear;
         }
 

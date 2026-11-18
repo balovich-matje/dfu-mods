@@ -679,7 +679,7 @@ namespace IdleAdventurer
                 y += line * 1.5f;
 
                 Text(s.heroName + ", " + IdleSim.CallingName(s).ToLower() + ", level " + s.level + "    Gold " + s.gold + "    Health " + s.health + "/" + s.maxHealth + "    Magicka " + s.magicka + "/" + IdleSim.MaxMagicka(s)
-                    + "    Potions " + s.potions + "/" + s.potionsToCarry, x, y, sc, White);
+                    + "    Potions " + s.potions + "/" + s.potionsToCarry + ((s.lockpicksToCarry > 0) ? "    Lockpicks " + s.lockpicks : ""), x, y, sc, White);
                 y += line;
                 Bar(new Rect(x, y, inner * 0.4f, Mathf.Round(line * 0.3f)), (float)s.health / Mathf.Max(1, s.maxHealth), Bad);
                 Bar(new Rect(x + inner * 0.42f, y, inner * 0.2f, Mathf.Round(line * 0.3f)), (float)s.magicka / Mathf.Max(1, IdleSim.MaxMagicka(s)), Blue);
